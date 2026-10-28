@@ -1,23 +1,24 @@
 import random
 
-from world.enums import FeatureType
+from world.enums import FeatureName
+from world.feature import Feature, FeatureValue
 from world.model import FeatureStatistics
 
-from .feature import Feature
 
-
-class RelativeHumidity(Feature):
+class RelativeHumidity(Feature[float]):
     def __init__(self, statistics: FeatureStatistics):
-        super().__init__(FeatureType.RELATIVE_HUMIDITY, statistics)
+        super().__init__(FeatureName.RELATIVE_HUMIDITY, statistics)
 
-    def sample(self, concentration: float = 10.0) -> float:
+    def sample(self, concentration: float = 10.0) -> FeatureValue[float]:
         e = self.statistics
         amplitude = e.max - e.min
         if amplitude <= 0:
-            return e.min
+            return FeatureValue(self.feature_name, e.min)
 
         m = (e.mean - e.min) / amplitude
         alpha = m * concentration
         beta = (1 - m) * concentration
 
-        return e.min + random.betavariate(alpha, beta) * amplitude
+        sample = e.min + random.betavariate(alpha, beta) * amplitude
+
+        return FeatureValue(self.feature_name, sample)

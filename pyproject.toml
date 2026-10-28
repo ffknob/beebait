@@ -4,15 +4,18 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "pygame>=2.6.1",
+]
 
 [project.scripts]
+app = "app.main:main"
 beebait = "beebait.main:main"
-mundo = "mundo.main:main"
+mundo = "world.main:main"
 
 [build-system]
 requires = ["uv_build>=0.10.11,<0.11.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = ["beebait", "mundo"]
+module-name = ["app", "beebait", "world"]

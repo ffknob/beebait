@@ -1,3 +1,3 @@
-from .feature_type import FeatureType
+from .feature_name import FeatureName
 
-__all__ = ["FeatureType"]
+__all__ = ["FeatureName"]
