@@ -7,4 +7,5 @@ from app.render import RenderOptions
 class GridRenderOptions(RenderOptions):
     line_color: str = "black"
     line_width: int = 1
-    cell_size: int = 20
+    horizontal_margin_percentage: float = 0.1
+    vertical_margin_percentage: float = 0.1

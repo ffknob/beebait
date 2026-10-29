@@ -5,8 +5,8 @@ from world.model import WorldParameters
 
 from .cell import Cell
 
-DEFAULT_WORLD_COLUMNS = 100
-DEFAULT_WORLD_ROWS = 100
+DEFAULT_WORLD_COLUMNS = 20
+DEFAULT_WORLD_ROWS = 20
 DEFAULT_WORLD_REFRESH_RATE = 1.0
 
 
