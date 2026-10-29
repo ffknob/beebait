@@ -6,6 +6,7 @@ from world.feature import RelativeHumidity, Temperature
 from world.model import FeatureStatistics
 from world.world import World
 from app.render.world import WorldRenderer, WorldRenderOptions
+from app.render.grid import GridRenderer, GridRenderOptions
 
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
@@ -22,20 +23,29 @@ def create_world() -> World:
     return World(features={temperature, relative_humidity})
 
 
-def create_world_render() -> WorldRenderer:
-    world_render_options: WorldRenderOptions = WorldRenderOptions()
+def create_grid_renderer(surface: pygame.Surface) -> GridRenderer:
+    grid_render_options: GridRenderOptions = GridRenderOptions(surface=surface)
 
-    return WorldRenderer(options=world_render_options)
+    return GridRenderer(options=grid_render_options)
+
+
+def create_world_render(surface: pygame.Surface) -> WorldRenderer:
+    world_render_options: WorldRenderOptions = WorldRenderOptions(surface=surface)
+
+    return WorldRenderer(
+        options=world_render_options,
+        grid_renderer=create_grid_renderer(surface=surface),
+    )
 
 
 async def run():
-    world: World = create_world()
-    world_renderer: WorldRenderer = create_world_render()
-
     pygame.init()
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
     clock = pygame.time.Clock()
     running = True
+
+    world: World = create_world()
+    world_renderer: WorldRenderer = create_world_render(screen)
 
     while running:
         # poll for events
@@ -44,13 +54,11 @@ async def run():
             if event.type == pygame.QUIT:
                 running = False
 
-        # fill the screen with a color to wipe away anything from last frame
         screen.fill(BACKGROUND)
 
         await world.refresh()
-        world_renderer.render(screen, world)
+        world_renderer.render(world)
 
-        # flip() the display to put your work on screen
         pygame.display.flip()
 
         clock.tick(FPS)

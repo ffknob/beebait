@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import TypeVar
 
-from app.render import RenderOptions
+from .render_options import RenderOptions
 
 T = TypeVar("T")
 

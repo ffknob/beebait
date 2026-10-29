@@ -1,8 +1,10 @@
 import random
 
 from world.enums import FeatureName
-from world.feature import Feature, FeatureValue
 from world.model import FeatureStatistics
+
+from .feature import Feature
+from .feature_value import FeatureValue
 
 
 class Temperature(Feature[float]):

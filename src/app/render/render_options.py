@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 
+import pygame
+
 
 @dataclass(frozen=True)
 class RenderOptions:
-    pass
+    surface: pygame.Surface

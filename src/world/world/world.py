@@ -58,8 +58,6 @@ class World:
     async def refresh(self) -> Self:
         self._update_cells()
 
-        print(self._grid)
-
         return self
 
     def __repr__(self) -> str:

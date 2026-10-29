@@ -19,3 +19,7 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = ["app", "beebait", "world"]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"

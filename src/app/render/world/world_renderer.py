@@ -1,15 +1,20 @@
 from app.render import Renderer
-from app.render.world import WorldRenderOptions
+from app.render.grid import GridRenderer
 from world.world import World
+from app.model import Grid
+
+from .world_render_options import WorldRenderOptions
 
 
-class WorldRenderer[World](Renderer):
-    def __init__(self, options: WorldRenderOptions):
+class WorldRenderer(Renderer[World]):
+    def __init__(
+        self, options: WorldRenderOptions, grid_renderer: GridRenderer
+    ) -> None:
         super().__init__(options)
 
-        self.world = world
+        self.grid_renderer = grid_renderer
 
     def render(self, object: World) -> None:
-        grid_render_options: GridRenderOptions = GridRenderOptions()
-
-        GridRenderer(grid_render_options).render()
+        world: World = object
+        grid: Grid = Grid(columns=world.parameters.columns, rows=world.parameters.rows)
+        self.grid_renderer.render(grid)

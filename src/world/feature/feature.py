@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
 
 from world.enums import FeatureName
-from world.feature import FeatureValue
 from world.model import FeatureStatistics
+
+from .feature_value import FeatureValue
 
 
 class Feature[T: (int, float, str)](ABC):
