@@ -2,11 +2,11 @@ import asyncio
 
 import pygame
 
-from world.feature import RelativeHumidity, Temperature
-from world.model import FeatureStatistics
-from world.world import World
-from app.render.world import WorldRenderer, WorldRenderOptions
 from app.render.grid import GridRenderer, GridRenderOptions
+from app.render.world import WorldRenderer, WorldRenderOptions
+from world.feature import RelativeHumidity, Temperature
+from world.model import FeatureStatistics, WorldParameters
+from world.world import World
 
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
@@ -20,11 +20,15 @@ def create_world() -> World:
         FeatureStatistics(min=21, max=30, mean=25, median=26)
     )
 
-    return World(features={temperature, relative_humidity})
+    world_parameters: WorldParameters = WorldParameters(columns=100, rows=100)
+
+    return World(parameters=world_parameters, features={temperature, relative_humidity})
 
 
 def create_grid_renderer(surface: pygame.Surface) -> GridRenderer:
-    grid_render_options: GridRenderOptions = GridRenderOptions(surface=surface)
+    grid_render_options: GridRenderOptions = GridRenderOptions(
+        surface=surface, line_color="gray60"
+    )
 
     return GridRenderer(options=grid_render_options)
 
