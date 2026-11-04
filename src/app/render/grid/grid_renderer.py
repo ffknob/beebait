@@ -2,7 +2,7 @@ from typing import override
 
 import pygame
 
-from app.model import RenderedGrid
+from app.model import RenderedGrid, RenderedCell
 from app.render import Renderer
 
 from .grid_render_options import GridRenderOptions
@@ -165,18 +165,17 @@ class GridRenderer(Renderer[RenderedGrid]):
     def _render_cells(self, rendered_grid: RenderedGrid) -> None:
         for row in range(rendered_grid.rows):
             for column in range(rendered_grid.columns):
-                cell_rect: pygame.Rect = self.cells_coordinates[row][column]
+                cell: RenderedCell = rendered_grid.cells[row][column]
                 cell_color: pygame.Color = (
-                    rendered_grid.cells[row][column].color
-                    if rendered_grid.cells and [row][column] is not None
-                    else self.options.background_color
+                    cell.color if cell.color else self.options.background_color
                 )
 
-                pygame.draw.rect(
-                    self.options.surface,
-                    cell_color,
-                    cell_rect,
-                )
+                if cell.coordinates is not None:
+                    pygame.draw.rect(
+                        self.options.surface,
+                        cell_color,
+                        cell.coordinates,
+                    )
 
     @override
     def render(self, object: RenderedGrid) -> None:
@@ -187,6 +186,9 @@ class GridRenderer(Renderer[RenderedGrid]):
 
         if not self.vertical_lines:
             self._calculate_vertical_lines(rendered_grid)
+
+        if not self.cells_coordinates:
+            self._calculate_cells_coordinates(rendered_grid)
 
         self._render_horizontal_lines(rendered_grid)
         self._render_vertical_lines(rendered_grid)

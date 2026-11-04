@@ -7,4 +7,4 @@ from .rendered_cell import RenderedCell
 class RenderedGrid:
     columns: int
     rows: int
-    cells: list[list[RenderedCell]] | None = None
+    cells: list[list[RenderedCell]]
