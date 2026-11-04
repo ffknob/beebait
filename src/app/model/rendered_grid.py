@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 
-from .grid_cell import GridCell
+from .rendered_cell import RenderedCell
 
 
 @dataclass(frozen=True)
-class Grid:
+class RenderedGrid:
     columns: int
     rows: int
-    cells: list[GridCell] | None = None
+    cells: list[list[RenderedCell]] | None = None

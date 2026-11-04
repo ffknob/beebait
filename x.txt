@@ -1,0 +1,820 @@
+ ▐▛███▛█   Claude Code v2.1.314
+▝▜██████▀  Opus 5.5 · Claude Pro
+ ▝▝   ▝▝   ~/Workspace/ffknob/beebait
+
+
+❯ .                                                                             
+
+● Oi! Sua mensagem veio só com um ".". Em que posso ajudar no beebait? Por
+  exemplo, posso continuar o trabalho do último commit ("wip"), revisar a grid
+  ou mexer nas entidades.
+
+✻ Sautéed for 3s · done 15:47
+
+❯ how to solve ValueError: mutable default <class 'pygame.color.Color'> for     
+  field background_color is not allowed: use default_factory in                 
+  @src/app/render/grid/grid_render_options.py                                   
+  ⎿  Read src/app/render/grid/grid_render_options.py (17 lines)
+
+● Update(src/app/render/grid/grid_render_options.py)
+  ⎿  Added 3 lines, removed 3 lines
+      1 -from dataclasses import dataclass                               
+      1 +from dataclasses import dataclass, field                        
+      2  
+      3  import pygame
+      4  
+     ...
+       9  @dataclass(frozen=True)
+      10  class GridRenderOptions(RenderOptions):
+      11      surface: pygame.Surface
+      12 -    background_color: pygame.Color = WHITE                     
+      13 -    line_color: pygame.Color = BLACK                           
+      12 +    background_color: pygame.Color = field(default_factory=lamb
+         +da: pygame.Color(WHITE))                                       
+      13 +    line_color: pygame.Color = field(default_factory=lambda: py
+         +game.Color(BLACK))                                             
+      14      line_width: int = 1
+      15      horizontal_margin_percentage: float = 0.1
+      16      vertical_margin_percentage: float = 0.1
+
+● I fixed it in src/app/render/grid/grid_render_options.py by giving both color
+  fields a default_factory instead of a plain default. I haven't run the app to
+  check it.
+
+  Why it fails: pygame.Color is mutable. Dataclasses reject a default value when
+  its class has __hash__ = None, which is how they detect a mutable type like
+  list or dict. A plain default is one object that every instance would share,
+  so changing opts.background_color.r would change the color for every
+  GridRenderOptions. This happens even though your dataclass is frozen=True:
+  freezing stops you from replacing the field, but you could still change the
+  Color object inside it.
+
+  The fix: a default_factory builds a new Color for each instance:
+
+  from dataclasses import dataclass, field
+  ...
+  background_color: pygame.Color = field(default_factory=lambda:
+  pygame.Color(WHITE))
+  line_color: pygame.Color = field(default_factory=lambda: pygame.Color(BLACK))
+
+  Using pygame.Color(WHITE) makes a copy, so your shared WHITE and BLACK
+  constants can't be changed through an options object.
+
+  Other options:
+  - Store the colors as RGB tuples, like (255, 255, 255). Tuples can't be
+    changed, so a plain default works, and pygame accepts tuples anywhere it
+    takes a color.
+  - Use default_factory=lambda: WHITE if you don't need a copy. It avoids the
+    error, but every instance shares the same WHITE object again.
+
+✻ Brewed for 11s · done 16:54
+
+※ recap: You're fixing the pygame "mutable default" error in GridRenderOptions, and I've changed both color fields to use a default_factory. Next, run the app to confirm the grid renders without the error. (disable recaps in /config)
+
+❯ considere a atividade descrita em @ATIVIDADE.md e a ideia que tive em         
+  @IDEIA.md . Considere o projeto que estou tentando implementar em python.     
+  Minha ideia é implementar um mundo artificial e simulado que gerará           
+  estímulos. também quero implementar beebait (armadilhas para enxames) que     
+  capturarão esses estímulos e enviarão par auma central telemetria e           
+  descobertas processadas localmente. A ideia é apenas resolver a atividade da  
+  disciplina e não fazer um projeto completamente pronto para produção. estou   
+  usando pygame para desenhar uma grid com a área que simula o mundo e gostaria 
+  de pintá-la com informações como a temperatura de cada célula. Comece         
+  bolando um plano para uma entrega mínima.                                     
+  ⎿  Read ATIVIDADE.md (34 lines)
+  ⎿  Read IDEIA.md (37 lines)
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Li a atividade, a ideia e o código atual. Segue um plano de entrega mínima,
+  pensado para pontuar bem nos critérios da disciplina (40% vai para
+  implementação técnica de IoT + IA) sem virar um projeto de produção.
+
+  Ideia central da demo
+
+  Como o mundo é simulado, você sabe a verdade, ou seja, quais iscas estão de
+  fato ocupadas. Isso resolve duas coisas de uma vez:
+  1. Dados rotulados de graça para treinar o modelo de IA.
+  2. Validação: dá para comparar o que a central acha com o que realmente
+     aconteceu. Isso alimenta a seção "Análise de Resultados" do relatório e
+     rende uma demo visual forte no vídeo, com duas janelas lado a lado: "mundo
+     real" e "o que o apicultor vê".
+
+  Arquitetura (mapeada nas camadas IoT da sua IDEIA.md)
+
+  ┌──────────── processo: mundo (simulador) ────────────┐        ┌──── processo:
+  app (central) ────┐
+  │ World (grid)  → campos de temperatura/umidade       │        │ assina MQTT  
+                    │
+  │ Enxames       → vagam e ocupam iscas                │  MQTT  │ persiste em 
+  SQLite              │
+  │ Beebaits      → sensores (lêem a célula + ruído)    │ ─────► │ mapa pygame: 
+  iscas coloridas    │
+  │   └ edge: janela de leituras → modelo → "123:O:.92" │ (LoRa  │   por 
+  ocupação/confiança        │
+  │ Render "god view" (heatmap + enxames reais)         │ simul.)│ alertas (isca
+  muda / silencia)  │
+  └─────────────────────────────────────────────────────┘        
+  └─────────────────────────────────┘
+
+  Os scripts de pyproject.toml (mundo, beebait, app) já casam com isso. Para a
+  entrega mínima, sugiro que mundo + iscas rodem num processo só: as iscas
+  precisam "ler" o ambiente físico, e separá-las em processos próprios só
+  adiciona complexidade. A fronteira importante para a disciplina é isca → 
+  central via MQTT.
+
+  Fases
+
+  Fase 0: estabilizar o que existe. Encontrei estes bugs:
+  - grid_renderer.py: rendered_grid.cells and [row][column] cria uma lista
+    literal [row] e indexa [column], o que dá IndexError para coluna ≥ 1. O
+    certo é rendered_grid.cells[row][column].
+  - _calculate_cells_coordinates faz append(row_dimensions) dentro do laço
+    interno (está indentado um nível a mais). Além disso, render() nunca chama
+    esse método, e _calculate_cell_dimensions não guarda o resultado em
+    self.cell_width/height.
+  - As células são desenhadas depois das linhas e cobrem a grade.
+  - cell_renderer.py importa app.model.cell, que não existe.
+  - app/model/__init__.py exporta "GridCell" em vez de "RenderedCell".
+  - world_renderer._map_temperature_to_color sempre retorna preto. A lógica da
+    paleta em CellRenderer._get_temperature_color deveria ir para lá.
+  - World.refresh() roda a cada frame (60 Hz) e ignora refresh_rate. O
+    world.init() nunca é chamado.
+
+  Fase 1: mundo crível + heatmap. Esse é o objetivo imediato.
+  - Hoje cada célula sorteia um valor independente a cada frame, o que produz
+    ruído estático e não um campo de temperatura. Proponho:
+    - um campo espacialmente suave: ruído aleatório suavizado por blur
+      gaussiano, com numpy;
+    - mais um ciclo diário, T(t) = base(x,y) + A·sin(2π·t/24h);
+    - mais um ruído pequeno por leitura.
+  - Um relógio simulado (ex.: 1 s real = 10 min simulados), desacoplado do FPS.
+  - Pintar a grid com a paleta que você já tem, alternar temperatura/umidade com
+    uma tecla e mostrar uma legenda.
+  - (Opcional) Algumas células de "mata/sombra" mais frescas, que depois tornam
+    certas iscas mais atrativas.
+
+  Fase 2: enxames e iscas.
+  - Beebait(id, posição) posicionada em algumas células.
+  - Swarm: surge aleatoriamente (época de enxameação), vaga e ocupa uma isca
+    próxima com uma probabilidade que depende da atratividade.
+  - Uma isca ocupada tem microclima interno: temperatura ~34–35 °C estável,
+    umidade mais alta e um "sinal acústico". Simulamos o áudio como features
+    (energia, frequência dominante ~200–500 Hz) em vez de gerar áudio de
+    verdade.
+
+  Fase 3: edge (TinyML simulado).
+  - Cada isca mantém uma janela das últimas N leituras e extrai features: ΔT 
+    interno−externo, desvio padrão da temperatura interna (estabilidade),
+    umidade e energia acústica.
+  - O modelo roda na isca e gera um payload compacto, por exemplo 123:O:92
+    (poucos bytes). Imponha um limite de payload (~51 bytes, como no LoRaWAN SF
+    alto) e um intervalo mínimo de envio. Isso mostra que você entendeu a
+    restrição de rede.
+
+  Fase 4: IA.
+  - O simulador gera um dataset rotulado (CSV). Um notebook ou script treina com
+    scikit-learn (regressão logística ou árvore pequena) e avalia com matriz de
+    confusão, precisão/recall e F1.
+  - Para manter o espírito TinyML, exporte os coeficientes e faça a inferência
+    na isca em Python puro, sem sklearn em runtime.
+  - Esses resultados vão direto para o relatório.
+
+  Fase 5: central.
+  - Assinante MQTT (paho-mqtt), com broker Mosquitto via docker compose.
+    Persistência em SQLite.
+  - Mapa pygame com as iscas coloridas por estado (vazia/ocupada/sem sinal) e a
+    confiança, mais um painel lateral listando as iscas.
+  - Alerta simples: isca sem enviar há X tempo.
+
+  Fase 6: entregáveis. README (instalação com uv, como subir o broker e rodar os
+  dois processos), um diagrama de arquitetura (o de cima, refinado) e um
+  roteiro do vídeo.
+
+  Fora do escopo mínimo
+
+  GPS/roubo, buzzer, contagem por laser, áudio real e LoRa real. No relatório,
+  cite tudo isso como trabalhos futuros.
+
+  Dependências novas
+
+  numpy, paho-mqtt e scikit-learn (esta só para treino; pode ficar num grupo
+  dev).
+
+  Quer que eu comece pela Fase 0 + Fase 1, ou seja, corrigir o render e deixar o
+  heatmap de temperatura suave e animado com o ciclo diário? Se preferir, salvo
+  este plano como PLANO.md no repositório.
+
+✻ Cogitated for 55s · done 17:09
+
+※ recap: Você quer entregar a atividade da disciplina simulando um mundo com iscas IoT que enviam ocupação para uma central, e montei um plano de entrega mínima em seis fases. Próximo passo: confirme se começo pela Fase 0 + 1 (corrigir o render e criar o heatmap de temperatura). (disable recaps in /config)
+
+❯ /export x                                                                     
+  ⎿  Conversation exported to: /home/ffknob/Workspace/ffknob/beebait/x.txt
+
+❯ crie um README.md que resuma tudo e que possa eventualmente ser transformado  
+  em pdf para ser entregue como o relatório da atividade. inclua um diagrama da 
+  arquitetura citando conceitos de IoT (Lora, wifi, mqtt, ...)                  
+
+● Write(README.md)
+  ⎿  Added 400 lines, removed 2 lines
+        1 -# beebait                                                     
+        2 -Bee bait                                                      
+        1 +# BeeBait — Monitoramento Inteligente de Iscas para Enxames   
+        2 +                                                              
+        3 +> Projeto final da atividade acadêmica **Internet das Coisas e
+          + Aplicações de IA (Big Data)**.                               
+        4 +>                                                             
+        5 +> Solução simulada que combina **IoT** (sensores em iscas, LoR
+          +aWAN, MQTT) e **IA** (inferência na borda — TinyML) para indic
+          +ar remotamente quais iscas de captura de enxames de abelhas es
+          +tão ocupadas.                                                 
+        6 +                                                              
+        7 +---                                                           
+        8 +                                                              
+        9 +## Sumário                                                    
+       10 +                                                              
+       11 +1. [Contextualização](#1-contextualização)                    
+       12 +2. [Arquitetura e Metodologia](#2-arquitetura-e-metodologia)  
+       13 +3. [Desenvolvimento e Funcionalidades](#3-desenvolvimento-e-fu
+          +ncionalidades)                                                
+       14 +4. [Análise de Resultados](#4-análise-de-resultados)          
+       15 +5. [Conclusões e Lições Aprendidas](#5-conclusões-e-lições-apr
+          +endidas)                                                      
+       16 +6. [Instalação e Execução](#6-instalação-e-execução)          
+       17 +7. [Estrutura do Repositório](#7-estrutura-do-repositório)    
+       18 +                                                              
+       19 +---                                                           
+       20 +                                                              
+       21 +## 1. Contextualização                                        
+       22 +                                                              
+       23 +### 1.1 Problema                                              
+       24 +                                                              
+       25 +Na apicultura, uma forma barata de iniciar ou ampliar um apiár
+          +io é a **captura de enxames** com *iscas*: caixas (ou, de form
+          +a rudimentar, garrafas PET) preparadas com atrativos e instala
+          +das em árvores. Quando um enxame ocupa uma isca, ela é levada 
+          +ao apiário e acompanhada até produzir mel.                    
+       26 +                                                              
+       27 +Em uma propriedade rural no norte do Rio Grande do Sul, um api
+          +cultor amador espalha muitas iscas por uma área extensa, o que
+          + traz dois problemas:                                         
+       28 +                                                              
+       29 +- **Verificação manual**: para saber quais iscas foram ocupada
+          +s, é preciso visitar *cada uma*, mesmo as que continuam vazias
+          +.                                                             
+       30 +- **Perda de iscas**: como as iscas são fáceis de preparar e a
+          + propriedade oferece muitos pontos de captura, às vezes ele es
+          +quece onde as instalou.                                       
+       31 +                                                              
+       32 +### 1.2 Solução proposta                                      
+       33 +                                                              
+       34 +Acoplar a cada isca um **controlador IoT de baixo consumo** qu
+          +e:                                                            
+       35 +                                                              
+       36 +1. identifica a isca de forma única e registra sua localização
+          +;                                                             
+       37 +2. mede temperatura, umidade e áudio dentro da isca;          
+       38 +3. **infere localmente (na borda)**, com um modelo de IA leve,
+          + se a isca está ocupada e com qual confiança;                 
+       39 +4. transmite apenas essa conclusão (poucos bytes) via **LoRaWA
+          +N** para uma central na sede da propriedade;                  
+       40 +5. mostra, na central, um **mapa** com as iscas coloridas conf
+          +orme seu estado.                                              
+       41 +                                                              
+       42 +Assim, o apicultor passa a visitar **apenas a sede e as iscas 
+          +ocupadas**.                                                   
+       43 +                                                              
+       44 +### 1.3 Justificativa e relevância                            
+       45 +                                                              
+       46 +- **Sinergia IoT + IA**: só a IoT entregaria leituras brutas q
+          +ue alguém precisaria interpretar, e só a IA não teria dados do
+          + campo. Juntas, transformam sinais físicos (calor, som) em uma
+          + decisão acionável ("vá à isca 123").                         
+       47 +- **Restrição real que justifica o edge**: não há cobertura ce
+          +lular e as distâncias são de quilômetros. O LoRaWAN cobre essa
+          + distância, mas transmite poucos bytes por mensagem, o que tor
+          +na inviável enviar áudio. A inferência **precisa** acontecer n
+          +a isca.                                                       
+       48 +- **Base biológica**: uma colônia com cria mantém o ninho em t
+          +orno de **34–35 °C**. Uma temperatura interna estável e acima 
+          +da externa, somada à atividade sonora, é um forte indício de o
+          +cupação.                                                      
+       49 +- **Área**: Agronegócio / Agricultura de precisão (apicultura)
+          +.                                                             
+       50 +                                                              
+       51 +### 1.4 Escopo deste trabalho                                 
+       52 +                                                              
+       53 +Como o foco é acadêmico, o **ambiente físico, os enxames e o r
+          +ádio são simulados** em Python. Isso tem uma vantagem metodoló
+          +gica importante: o simulador conhece a **verdade de campo** (q
+          +uais iscas estão de fato ocupadas), o que permite **gerar dado
+          +s rotulados** para treinar o modelo e **validar** objetivament
+          +e as decisões do sistema.                                     
+       54 +                                                              
+       55 +---                                                           
+       56 +                                                              
+       57 +## 2. Arquitetura e Metodologia                               
+       58 +                                                              
+       59 +### 2.1 Visão geral (arquitetura de referência real)          
+       60 +                                                              
+       61 +O diagrama abaixo mostra a arquitetura que a solução teria em 
+          +campo, organizada nas camadas clássicas de IoT: **percepção → 
+          +rede → middleware/processamento → aplicação**, distribuídas en
+          +tre **edge, fog e cloud**.                                    
+       62 +                                                              
+       63 +```mermaid                                                    
+       64 +flowchart LR                                                  
+       65 +    subgraph EDGE["EDGE — Iscas no campo (camada de percepção)
+          +"]                                                            
+       66 +        direction TB                                          
+       67 +        subgraph B1["Beebait #123"]                           
+       68 +            S1["Sensores<br/>• Temp/Umidade interna<br/>• Temp
+          + externa<br/>• Microfone (MEMS)"]                             
+       69 +            MCU1["Microcontrolador<br/>(ex.: ESP32 / STM32)<br
+          +/>• Extração de features<br/>• Modelo TinyML"]                
+       70 +            A1["Atuadores<br/>• LED de status<br/>• Buzzer (lo
+          +calização)"]                                                  
+       71 +            R1["Rádio LoRa<br/>(SX127x / SX126x)"]            
+       72 +            S1 --> MCU1 --> R1                                
+       73 +            MCU1 --> A1                                       
+       74 +        end                                                   
+       75 +        B2["Beebait #124"]                                    
+       76 +        B3["Beebait #N ..."]                                  
+       77 +    end                                                       
+       78 +                                                              
+       79 +    subgraph NET["REDE — LPWAN"]                              
+       80 +        GW["Gateway LoRaWAN<br/>(sede da propriedade)<br/>868/
+          +915 MHz · SF7–SF12<br/>alcance de km"]                        
+       81 +    end                                                       
+       82 +                                                              
+       83 +    subgraph FOG["FOG — Sede da propriedade (middleware)"]    
+       84 +        NS["Network Server LoRaWAN<br/>(ex.: ChirpStack)<br/>d
+          +edup · ADR · join OTAA"]                                      
+       85 +        BRK["Broker MQTT<br/>(Mosquitto)<br/>pub/sub · QoS · t
+          +ópicos"]                                                      
+       86 +        CEN["Central BeeBait<br/>• decodifica payload<br/>• pe
+          +rsiste (SQLite)<br/>• regras e alertas"]                      
+       87 +        DB[("Banco de séries<br/>temporais")]                 
+       88 +        NS -- "MQTT" --> BRK --> CEN --> DB                   
+       89 +    end                                                       
+       90 +                                                              
+       91 +    subgraph CLOUD["CLOUD (opcional)"]                        
+       92 +        TR["Treino/re-treino do modelo<br/>(scikit-learn)"]   
+       93 +        DASH["Dashboard remoto"]                              
+       94 +    end                                                       
+       95 +                                                              
+       96 +    subgraph APP["APLICAÇÃO"]                                 
+       97 +        MAP["Mapa da propriedade<br/>iscas coloridas por ocupa
+          +ção"]                                                         
+       98 +        USER(("Apicultor"))                                   
+       99 +        MAP --> USER                                          
+      100 +    end                                                       
+      101 +                                                              
+      102 +    R1 -. "LoRa (RF)<br/>uplink ~10 bytes" .-> GW             
+      103 +    B2 -. LoRa .-> GW                                         
+      104 +    B3 -. LoRa .-> GW                                         
+      105 +    GW -- "Wi-Fi / Ethernet<br/>(backhaul IP, UDP/MQTT)" --> N
+          +S                                                             
+      106 +    CEN --> MAP                                               
+      107 +    CEN -- "4G/Internet<br/>MQTT over TLS" --> DASH           
+      108 +    DB -- "dados rotulados" --> TR                            
+      109 +    TR -- "novo modelo<br/>(firmware/OTA)" --> MCU1           
+      110 +```                                                           
+      111 +                                                              
+      112 +> Para gerar o PDF, use uma ferramenta que renderize Mermaid (
+          +ver [seção 6.4](#64-gerando-o-pdf-do-relatório)).             
+      113 +                                                              
+      114 +### 2.2 Conceitos de IoT aplicados                            
+      115 +                                                              
+      116 +| Conceito | Onde aparece | Por que foi escolhido |           
+      117 +|---|---|---|                                                 
+      118 +| **Sensores / percepção** | Termo-higrômetro interno e extern
+          +o, microfone MEMS | Medem os sinais físicos de uma colônia: ca
+          +lor estável (~34–35 °C), umidade e zumbido (~200–500 Hz). |   
+      119 +| **Atuadores** | LED piscante e buzzer | Indicam a ocupação n
+          +o local e ajudam a encontrar a isca. |                        
+      120 +| **Edge computing / TinyML** | Microcontrolador da isca | O á
+          +udio não cabe no rádio, então a isca envia só a *conclusão* (`
+          +ocupada, 92%`). Isso também economiza energia, porque o rádio 
+          +fica desligado a maior parte do tempo. |                      
+      121 +| **LoRa / LoRaWAN (LPWAN)** | Isca → gateway | Longo alcance 
+          +(km), baixíssimo consumo e sem depender de operadora. O custo 
+          +é a banda pequena (payload de ~51 a 222 bytes, conforme o *spr
+          +eading factor*) e o *duty cycle* limitado. |                  
+      122 +| **Gateway** | Sede | Recebe o RF de todas as iscas e repassa
+          + via IP. É um dispositivo "burro", que não interpreta o payloa
+          +d. |                                                          
+      123 +| **Wi-Fi / Ethernet (backhaul)** | Gateway → servidor | A sed
+          +e tem internet/rede local, então o tráfego segue por IP comum.
+          + |                                                            
+      124 +| **Wi-Fi na instalação (opcional)** | Celular → isca | Na ins
+          +talação, um app pode configurar a isca (ID, foto, GPS) por Wi-
+          +Fi ou BLE de curto alcance. |                                 
+      125 +| **MQTT** | Network server → central | Protocolo *publish/sub
+          +scribe* leve, com broker, tópicos hierárquicos e QoS. É o padr
+          +ão de fato em IoT. |                                          
+      126 +| **Fog computing** | Central na sede | Processa, armazena e a
+          +lerta localmente, sem depender da nuvem. |                    
+      127 +| **Cloud (opcional)** | Treino e dashboard remoto | Treina e 
+          +re-treina o modelo sobre o histórico (Big Data) e permite aces
+          +so remoto. |                                                  
+      128 +| **OTA (Over-the-Air)** | Cloud → isca | Distribui um modelo 
+          +melhorado às iscas. |                                         
+      129 +                                                              
+      130 +### 2.3 Arquitetura implementada (simulação)                  
+      131 +                                                              
+      132 +Na implementação, o hardware e o rádio são substituídos por co
+          +mponentes de software, mas as **fronteiras** da arquitetura re
+          +al são preservadas:                                           
+      133 +                                                              
+      134 +```mermaid                                                    
+      135 +flowchart LR                                                  
+      136 +    subgraph SIM["Processo 1 — Simulador (mundo + iscas)"]    
+      137 +        W["World<br/>grid de células<br/>temperatura · umidade
+          +<br/>ciclo diário"]                                           
+      138 +        SW["Enxames<br/>vagam e ocupam iscas"]                
+      139 +        BB["Beebaits<br/>sensores com ruído<br/>janela de leit
+          +uras<br/>modelo embarcado"]                                   
+      140 +        LORA["Rádio LoRa simulado<br/>limite de payload<br/>in
+          +tervalo mínimo de envio"]                                     
+      141 +        GV["Render 'god view'<br/>(pygame)<br/>heatmap + verda
+          +de de campo"]                                                 
+      142 +        W --> BB                                              
+      143 +        SW --> BB                                             
+      144 +        BB --> LORA                                           
+      145 +        W --> GV                                              
+      146 +        SW --> GV                                             
+      147 +    end                                                       
+      148 +                                                              
+      149 +    BRK["Broker MQTT<br/>Mosquitto (Docker)"]                 
+      150 +                                                              
+      151 +    subgraph CEN["Processo 2 — Central (app)"]                
+      152 +        SUB["Assinante MQTT<br/>(paho-mqtt)"]                 
+      153 +        DB[("SQLite")]                                        
+      154 +        UI["Mapa (pygame)<br/>estado e confiança<br/>de cada i
+          +sca"]                                                         
+      155 +        SUB --> DB --> UI                                     
+      156 +    end                                                       
+      157 +                                                              
+      158 +    subgraph ML["Offline — Treino"]                           
+      159 +        DS[("Dataset rotulado<br/>(CSV gerado pelo simulador)"
+          +)]                                                            
+      160 +        SK["scikit-learn<br/>treino + avaliação"]             
+      161 +        DS --> SK                                             
+      162 +    end                                                       
+      163 +                                                              
+      164 +    LORA -- "publish<br/>beebait/{id}/uplink" --> BRK -- subsc
+          +ribe --> SUB                                                  
+      165 +    BB -- "features + rótulo real" --> DS                     
+      166 +    SK -- "coeficientes exportados" --> BB                    
+      167 +```                                                           
+      168 +                                                              
+      169 +| Componente real | Equivalente simulado |                    
+      170 +|---|---|                                                     
+      171 +| Ambiente físico (clima, árvores) | `world` — grid com campos
+          + de temperatura e umidade |                                   
+      172 +| Enxames de abelhas | Entidades `Swarm` com comportamento pro
+          +babilístico |                                                 
+      173 +| Sensores da isca | Leitura do microclima da célula/isca + ru
+          +ído gaussiano |                                               
+      174 +| Microcontrolador + TinyML | Classe `Beebait` com inferência 
+          +em Python puro, usando coeficientes exportados |              
+      175 +| Rádio LoRa | Camada que impõe limite de bytes e intervalo de
+          + envio antes de publicar |                                    
+      176 +| Gateway + Network Server | Publicação direta no broker MQTT 
+          +|                                                             
+      177 +| Central / aplicação | Processo `app`: assinante MQTT, SQLite
+          + e mapa em pygame |                                           
+      178 +                                                              
+      179 +### 2.4 Tecnologias                                           
+      180 +                                                              
+      181 +| Tecnologia | Uso |                                          
+      182 +|---|---|                                                     
+      183 +| **Python 3.13** | Linguagem principal |                     
+      184 +| **uv** | Gerenciamento de ambiente e dependências |         
+      185 +| **pygame** | Visualização do mundo (heatmap) e da central (m
+          +apa) |                                                        
+      186 +| **numpy** | Geração dos campos ambientais (ruído suavizado, 
+          +ciclo diário) |                                               
+      187 +| **paho-mqtt** | Cliente MQTT (publicação pelas iscas, assina
+          +tura pela central) |                                          
+      188 +| **Mosquitto** | Broker MQTT (via Docker) |                  
+      189 +| **scikit-learn** | Treino e avaliação do classificador de oc
+          +upação |                                                      
+      190 +| **SQLite** | Persistência da telemetria na central |        
+      191 +                                                              
+      192 +### 2.5 Metodologia                                           
+      193 +                                                              
+      194 +O desenvolvimento é **incremental**, com uma entrega funcional
+          + ao fim de cada fase:                                         
+      195 +                                                              
+      196 +1. **Mundo simulado**: grid com temperatura e umidade espacial
+          +mente coerentes, ciclo dia/noite e relógio simulado desacoplad
+          +o do FPS. Renderização como *heatmap*.                        
+      197 +2. **Enxames e iscas**: iscas posicionadas no mapa. Enxames su
+          +rgem, vagam e ocupam iscas. Uma isca ocupada passa a ter micro
+          +clima de colônia.                                             
+      198 +3. **Edge**: cada isca extrai features de uma janela de leitur
+          +as e produz um payload compacto.                              
+      199 +4. **IA**: geração do dataset rotulado, treino, avaliação e ex
+          +portação do modelo para a isca.                               
+      200 +5. **Comunicação e central**: MQTT, persistência e mapa do api
+          +cultor.                                                       
+      201 +6. **Validação e documentação**: comparação entre a verdade de
+          + campo e a inferência, este relatório e o vídeo.              
+      202 +                                                              
+      203 +---                                                           
+      204 +                                                              
+      205 +## 3. Desenvolvimento e Funcionalidades                       
+      206 +                                                              
+      207 +### 3.1 Mundo simulado (`src/world`)                          
+      208 +                                                              
+      209 +- **Grid** de `colunas × linhas` células, cada uma com valores
+          + de *features* ambientais (`Temperature`, `RelativeHumidity`).
+      210 +- Cada feature é amostrada a partir de estatísticas (`min`, `m
+          +ax`, `média`) com uma distribuição **Beta** reescalonada, o qu
+          +e mantém os valores dentro do intervalo e concentrados em torn
+          +o da média.                                                   
+      211 +- **Evolução planejada** para dar realismo:                   
+      212 +  - campo base espacialmente suave (ruído suavizado), para que
+          + células vizinhas tenham temperaturas parecidas;              
+      213 +  - ciclo diário: `T(x, y, t) = base(x, y) + A · sin(2π · t / 
+          +24h) + ε`;                                                    
+      214 +  - relógio simulado (ex.: 1 s real = 10 min simulados).      
+      215 +                                                              
+      216 +### 3.2 Visualização (`src/app/render`)                       
+      217 +                                                              
+      218 +- Arquitetura de *renderers* genéricos (`Renderer[T]`) configu
+          +rados por *options* imutáveis (`@dataclass(frozen=True)`).    
+      219 +- `WorldRenderer` converte o `World` em um `RenderedGrid` desa
+          +coplado do domínio, e o `GridRenderer` desenha células e linha
+          +s.                                                            
+      220 +- **Paleta de temperatura** com 25 cores, uma a cada 2 °C, de 
+          +−10 °C a +40 °C (frio → quente).                              
+      221 +                                                              
+      222 +### 3.3 Iscas e enxames *(planejado)*                         
+      223 +                                                              
+      224 +- `Beebait(id, posição)`: identificação única e localização no
+          + grid.                                                        
+      225 +- `Swarm`: surge aleatoriamente na época de enxameação e escol
+          +he uma isca próxima com probabilidade proporcional à sua atrat
+          +ividade (sombra, temperatura).                                
+      226 +- Isca ocupada: temperatura interna de ~34–35 °C com baixa var
+          +iância, umidade elevada e "sinal acústico" representado por fe
+          +atures (energia e frequência dominante), sem gerar áudio de ve
+          +rdade.                                                        
+      227 +                                                              
+      228 +### 3.4 Inferência na borda *(planejado)*                     
+      229 +                                                              
+      230 +Features calculadas pela isca sobre uma janela das últimas *N*
+          + leituras:                                                    
+      231 +                                                              
+      232 +| Feature | Intuição |                                        
+      233 +|---|---|                                                     
+      234 +| `ΔT = T_interna − T_externa` | Uma colônia aquece o ninho | 
+      235 +| `σ(T_interna)` | Uma colônia **estabiliza** a temperatura; u
+          +ma isca vazia acompanha o ambiente |                          
+      236 +| `UR_interna` | A atividade da colônia eleva a umidade |     
+      237 +| `energia_acústica` | O zumbido indica presença |            
+      238 +| `freq_dominante` | Separa abelhas de outros ruídos |        
+      239 +                                                              
+      240 +O modelo, uma regressão logística ou árvore rasa treinada offl
+          +ine, tem seus coeficientes exportados e roda em **Python puro*
+          +* na isca, imitando o que seria um modelo TinyML num microcont
+          +rolador.                                                      
+      241 +                                                              
+      242 +### 3.5 Protocolo de comunicação *(planejado)*                
+      243 +                                                              
+      244 +**Payload LoRa (uplink)**: compacto, respeitando o limite do r
+          +ádio:                                                         
+      245 +                                                              
+      246 +```                                                           
+      247 +123:O:92        → isca 123, Ocupada, confiança 92%            
+      248 +123:V:88        → isca 123, Vazia, confiança 88%              
+      249 +```                                                           
+      250 +                                                              
+      251 +| Campo | Tamanho (binário) | Descrição |                     
+      252 +|---|---|---|                                                 
+      253 +| ID da isca | 2 bytes | até 65 535 iscas |                   
+      254 +| Estado | 1 byte | `V` vazia / `O` ocupada |                 
+      255 +| Confiança | 1 byte | 0–100 % |                              
+      256 +| Temp. interna (opcional) | 2 bytes | °C × 100 |             
+      257 +| Bateria (opcional) | 1 byte | % |                           
+      258 +                                                              
+      259 +**Tópicos MQTT**:                                             
+      260 +                                                              
+      261 +| Tópico | Direção | Conteúdo |                               
+      262 +|---|---|---|                                                 
+      263 +| `beebait/{id}/uplink` | isca → central | estado, confiança e
+          + telemetria resumida |                                        
+      264 +| `beebait/{id}/status` | isca → central | *heartbeat* / bater
+          +ia (mensagem *retained*) |                                    
+      265 +| `beebait/{id}/downlink` | central → isca | comandos (ex.: ac
+          +ionar buzzer) |                                               
+      266 +                                                              
+      267 +O uplink usa **QoS 1** (pelo menos uma entrega), adequado para
+          + eventos de ocupação que não podem se perder.                 
+      268 +                                                              
+      269 +### 3.6 Central do apicultor *(planejado)*                    
+      270 +                                                              
+      271 +- Assina `beebait/+/uplink`, decodifica e persiste em SQLite. 
+      272 +- Mapa com as iscas coloridas: **verde** = vazia, **laranja** 
+          += ocupada, **cinza** = sem sinal. A opacidade é proporcional à
+          + confiança.                                                   
+      273 +- Alerta de isca **sem comunicação** há mais de *X* horas (bat
+          +eria, roubo, defeito).                                        
+      274 +                                                              
+      275 +---                                                           
+      276 +                                                              
+      277 +## 4. Análise de Resultados                                   
+      278 +                                                              
+      279 +> *Seção a ser preenchida conforme os experimentos forem execu
+          +tados.*                                                       
+      280 +                                                              
+      281 +### 4.1 Validação do modelo de ocupação                       
+      282 +                                                              
+      283 +O simulador conhece a ocupação real, então o modelo é avaliado
+          + em um conjunto de teste separado:                            
+      284 +                                                              
+      285 +| Métrica | Valor |                                           
+      286 +|---|---|                                                     
+      287 +| Acurácia | _a preencher_ |                                  
+      288 +| Precisão (ocupada) | _a preencher_ |                        
+      289 +| Recall (ocupada) | _a preencher_ |                          
+      290 +| F1-score | _a preencher_ |                                  
+      291 +                                                              
+      292 +- Matriz de confusão: _a inserir_                             
+      293 +- Importância das features: _a inserir_. A hipótese é que `ΔT`
+          + e `σ(T_interna)` sejam as mais relevantes.                   
+      294 +                                                              
+      295 +### 4.2 Validação do sistema ponta a ponta                    
+      296 +                                                              
+      297 +- **Tempo até detecção**: quanto tempo simulado se passa entre
+          + a ocupação real e a central exibir "ocupada".                
+      298 +- **Falsos alarmes**: visitas desnecessárias evitadas *vs.* vi
+          +sitas desnecessárias provocadas.                              
+      299 +- **Economia estimada**: visitas com o sistema *vs.* visitar t
+          +odas as iscas periodicamente.                                 
+      300 +- **Uso de banda**: bytes por mensagem e mensagens por isca po
+          +r dia, comparados com os limites do LoRaWAN.                  
+      301 +                                                              
+      302 +### 4.3 Insights                                              
+      303 +                                                              
+      304 +_A preencher (ex.: quais regiões do mapa mais atraem enxames, 
+          +horários de maior confiança na detecção)._                    
+      305 +                                                              
+      306 +---                                                           
+      307 +                                                              
+      308 +## 5. Conclusões e Lições Aprendidas                          
+      309 +                                                              
+      310 +> *Seção a ser consolidada ao final do projeto.*              
+      311 +                                                              
+      312 +Pontos já observados:                                         
+      313 +                                                              
+      314 +- **Restrição de rede como requisito de arquitetura**: a limit
+          +ação do LoRaWAN não é só um detalhe. É ela que *obriga* a IA a
+          + rodar na borda, o que ilustra bem a divisão edge/fog/cloud.  
+      315 +- **Simulação como fonte de dados rotulados**: na ausência de 
+          +hardware e de um histórico real, simular o ambiente permitiu t
+          +reinar e validar o modelo. A limitação é que o modelo aprende 
+          +o comportamento *do simulador*, não de colônias reais.        
+      316 +- **Separação domínio × visualização**: desacoplar o `World` d
+          +os *renderers* facilitou evoluir a simulação sem quebrar a int
+          +erface.                                                       
+      317 +                                                              
+      318 +### Trabalhos futuros                                         
+      319 +                                                              
+      320 +- Hardware real (ESP32 + LoRa + sensores) e coleta de áudio re
+          +al de colônias.                                               
+      321 +- Modelo de bioacústica para presença de rainha, saúde da colô
+          +nia e preparação para enxamear.                               
+      322 +- GPS para detectar mudança de posição (roubo, queda).        
+      323 +- Buzzer acionável por downlink para encontrar a isca.        
+      324 +- Contagem de abelhas na entrada com sensores de passagem (las
+          +er).                                                          
+      325 +- Estudo de energia (painel solar + bateria) e de custo por is
+          +ca.                                                           
+      326 +                                                              
+      327 +---                                                           
+      328 +                                                              
+      329 +## 6. Instalação e Execução                                   
+      330 +                                                              
+      331 +### 6.1 Pré-requisitos                                        
+      332 +                                                              
+      333 +- Python **3.13+**                                            
+      334 +- [uv](https://docs.astral.sh/uv/)                            
+      335 +- Docker *(para o broker MQTT, quando a comunicação estiver im
+          +plementada)*                                                  
+      336 +                                                              
+      337 +### 6.2 Instalação                                            
+      338 +                                                              
+      339 +```bash                                                       
+      340 +git clone <url-do-repositorio>                                
+      341 +cd beebait                                                    
+      342 +uv sync                                                       
+      343 +```                                                           
+      344 +                                                              
+      345 +### 6.3 Execução                                              
+      346 +                                                              
+      347 +```bash                                                       
+      348 +# Simulador do mundo (heatmap)                                
+      349 +uv run app                                                    
+      350 +                                                              
+      351 +# (planejado) Broker MQTT                                     
+      352 +docker run -d --name mosquitto -p 1883:1883 eclipse-mosquitto 
+      353 +                                                              
+      354 +# (planejado) Simulador de iscas e central                    
+      355 +uv run mundo                                                  
+      356 +uv run beebait                                                
+      357 +```                                                           
+      358 +                                                              
+      359 +### 6.4 Gerando o PDF do relatório                            
+      360 +                                                              
+      361 +Este README foi escrito para ser convertido no relatório técni
+          +co. Opções que renderizam os diagramas Mermaid:               
+      362 +                                                              
+      363 +```bash                                                       
+      364 +# Opção 1: md-to-pdf (Node)                                   
+      365 +npx md-to-pdf README.md                                       
+      366 +                                                              
+      367 +# Opção 2: pandoc + filtro mermaid                            
+      368 +pandoc README.md -o relatorio.pdf --filter mermaid-filter     
+      369 +```                                                           
+      370 +                                                              
+      371 +Outra opção é abrir o README no GitHub ou no VS Code (com exte
+          +nsão de Mermaid) e imprimir em PDF.                           
+      372 +                                                              
+      373 +---                                                           
+      374 +                                                              
+      375 +## 7. Estrutura do Repositório                                
+      376 +                                                              
+      377 +```                                                           
+      378 +beebait/                                                      
+      379 +├── ATIVIDADE.md              # Enunciado da atividade        
+      380 +├── IDEIA.md                  # Ideia original e funcionalidad
+          +es desejadas                                                  
+      381 +├── README.md                 # Este documento (relatório)    
+      382 +├── pyproject.toml                                            
+      383 +└── src/                                                      
+      384 +    ├── world/                # Simulação do ambiente físico  
+      385 +    │   ├── enums/            #   nomes das features          
+      386 +    │   ├── feature/          #   Temperature, RelativeHumidit
+          +y (amostragem)                                                
+      387 +    │   ├── model/            #   parâmetros e estatísticas   
+      388 +    │   └── world/            #   World (grid) e Cell         
+      389 +    ├── app/                  # Visualização e (futura) centra
+          +l                                                             
+      390 +    │   ├── model/            #   RenderedGrid, RenderedCell  
+      391 +    │   ├── render/           #   Renderers (world, grid, cell
+          +)                                                             
+      392 +    │   └── shared/           #   cores                       
+      393 +    └── beebait/              # (planejado) firmware simulado 
+          +da isca                                                       
+      394 +```                                                           
+      395 +                                                              
+      396 +---                                                           
+      397 +                                                              
+      398 +## Equipe                                                     
+      399 +                                                              
+      400 +_A preencher._                                                
+
+● Substituí o README.md (antes ele tinha só o título) por um documento que segue
+  as seções que o enunciado pede para o relatório: Contextualização,
+  Arquitetura e Metodologia, Desenvolvimento, Análise de Resultados e
+  Conclusões. Também incluí instalação, execução e estrutura do repositório.
+
+  Diagramas (em Mermaid, que o GitHub renderiza):
+  - Arquitetura de referência real: a isca com sensores, microcontrolador,
+    TinyML e rádio LoRa → gateway LoRaWAN → Wi-Fi/Ethernet → network server
+    (ChirpStack) → broker MQTT → central na sede → mapa do apicultor, com nuvem
+    opcional para treino e atualização do modelo pelo ar (OTA). Está organizada
+    nas camadas edge, fog e cloud.
+  - Arquitetura implementada: mostra o que cada peça real vira na simulação
+    (processo do simulador, broker Mosquitto, processo da central e treino
+    offline).
+
+  Conteúdo que acompanha os diagramas:
+  - uma tabela de conceitos de IoT (LoRa/LoRaWAN, duty cycle, spreading factor,
+    gateway, Wi-Fi como backhaul, MQTT com tópicos e QoS, fog, OTA);
+  - a proposta de payload compacto e os tópicos MQTT;
+  - as features que a isca usaria para decidir se está ocupada.
+
+  Pontos a saber:
+  - As partes ainda não implementadas estão marcadas como (planejado). Os
+    resultados, as métricas e a lista da equipe estão como a preencher, porque
+    não inventei números.
+  - A seção 6.4 explica como gerar o PDF já com os diagramas desenhados (npx 
+    md-to-pdf README.md ou pandoc com mermaid-filter). Não testei a geração do
+    PDF.
+  - O uv run app que aparece no README ainda não funciona: o render tem os bugs
+    da Fase 0 que listei antes.
+  - O /export criou o x.txt na raiz do repositório. Convém removê-lo ou
+    adicioná-lo ao .gitignore antes de commitar.
+
+  Quer que eu siga para a Fase 0 + Fase 1, corrigindo o render e fazendo o
+  heatmap de temperatura funcionar?
+
+✻ Crunched for 1m 26s · done 19:38
+
+※ recap: Você está montando o BeeBait, uma simulação de iscas para enxames com IoT e IA para a disciplina, e acabei de reescrever o README.md como base do relatório, com os diagramas de arquitetura. O próximo passo é corrigir o render e fazer o heatmap de temperatura funcionar, assim que você aprovar. (disable recaps in /config)

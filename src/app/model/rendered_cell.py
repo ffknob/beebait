@@ -4,6 +4,6 @@ import pygame
 
 
 @dataclass(frozen=True)
-class GridCell:
-    coordinates: pygame.Rect
-    color: tuple[int, int, int]
+class RenderedCell:
+    coordinates: pygame.Rect | None = None
+    color: pygame.Color | None = None

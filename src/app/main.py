@@ -11,7 +11,8 @@ from world.world import World
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
 FPS = 60
-BACKGROUND = "white"
+BACKGROUND_COLOR = "white"
+LINE_COLOR = "gray60"
 
 
 def create_world() -> World:
@@ -27,7 +28,7 @@ def create_world() -> World:
 
 def create_grid_renderer(surface: pygame.Surface) -> GridRenderer:
     grid_render_options: GridRenderOptions = GridRenderOptions(
-        surface=surface, line_color="gray60"
+        surface=surface, background_color=BACKGROUND_COLOR, line_color=LINE_COLOR
     )
 
     return GridRenderer(options=grid_render_options)
@@ -58,7 +59,7 @@ async def run():
             if event.type == pygame.QUIT:
                 running = False
 
-        screen.fill(BACKGROUND)
+        screen.fill(BACKGROUND_COLOR)
 
         await world.refresh()
         world_renderer.render(world)
