@@ -5,20 +5,30 @@ import pygame
 from app.render.grid import GridRenderer, GridRenderOptions
 from app.render.world import WorldRenderer, WorldRenderOptions
 from world.feature import RelativeHumidity, Temperature
-from world.model import FeatureStatistics, WorldParameters
+from world.model import FeatureOptions, FeatureStatistics, WorldParameters
 from world.world import World
+from app.shared.colors import BLACK, WHITE
 
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
 FPS = 60
-BACKGROUND_COLOR = "white"
-LINE_COLOR = "gray60"
 
 
 def create_world() -> World:
-    temperature = Temperature(FeatureStatistics(min=21, max=30, mean=25, median=26))
+    temperature = Temperature(
+        FeatureStatistics(min=5, max=40, mean=22, median=22),
+        FeatureOptions(
+            max_oscillation=0.05,
+            concentration=2.0,
+            max_neighbour_deviation=1.5,
+            max_base_deviation=2.0,
+        ),
+    )
     relative_humidity = RelativeHumidity(
-        FeatureStatistics(min=21, max=30, mean=25, median=26)
+        FeatureStatistics(min=21, max=30, mean=25, median=26),
+        FeatureOptions(
+            max_oscillation=0.2, max_neighbour_deviation=2.0, max_base_deviation=3.0
+        ),
     )
 
     world_parameters: WorldParameters = WorldParameters(columns=100, rows=100)
@@ -28,7 +38,7 @@ def create_world() -> World:
 
 def create_grid_renderer(surface: pygame.Surface) -> GridRenderer:
     grid_render_options: GridRenderOptions = GridRenderOptions(
-        surface=surface, background_color=BACKGROUND_COLOR, line_color=LINE_COLOR
+        surface=surface, background_color=WHITE, line_color=BLACK
     )
 
     return GridRenderer(options=grid_render_options)
@@ -59,7 +69,7 @@ async def run():
             if event.type == pygame.QUIT:
                 running = False
 
-        screen.fill(BACKGROUND_COLOR)
+        screen.fill(WHITE)
 
         await world.refresh()
         world_renderer.render(world)

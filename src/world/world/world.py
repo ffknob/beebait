@@ -1,3 +1,4 @@
+import random
 from typing import Self
 
 from world.feature import Feature
@@ -31,6 +32,14 @@ class World:
         ]
         self._features = features if features else set()
 
+        # Each cell paired with its (up to 8) neighbours, in row-major order
+        self._cells_with_neighbours: list[tuple[Cell, list[Cell]]] = [
+            (self._grid[row][column], self._get_neighbours(row, column))
+            for row in range(self._parameters.rows)
+            for column in range(self._parameters.columns)
+        ]
+        self._initialized = False
+
     @property
     def parameters(self) -> WorldParameters:
         return self._parameters
@@ -39,24 +48,53 @@ class World:
     def grid(self) -> list[list[Cell]]:
         return self._grid
 
-    def _update_cell_features(self, cell: Cell) -> None:
+    def _get_neighbours(self, row: int, column: int) -> list[Cell]:
+        neighbours: list[Cell] = []
+
+        for d_row in (-1, 0, 1):
+            for d_column in (-1, 0, 1):
+                if d_row == 0 and d_column == 0:
+                    continue
+
+                r, c = row + d_row, column + d_column
+                if 0 <= r < self._parameters.rows and 0 <= c < self._parameters.columns:
+                    neighbours.append(self._grid[r][c])
+
+        return neighbours
+
+    def _update_cell_features(self, cell: Cell, neighbours: list[Cell]) -> None:
         for feature in self._features:
-            feature_value = feature.sample()
+            previous_feature_value = cell.features_values.get(feature.feature_name)
+
+            # Neighbours not set yet (only possible during init) are skipped
+            neighbours_values = [
+                value
+                for neighbour in neighbours
+                if (value := neighbour.features_values.get(feature.feature_name))
+                is not None
+            ]
+
+            feature_value = feature.sample(previous_feature_value, neighbours_values)
             cell.set_feature_value(feature_value)
 
-    def _update_cells(self) -> None:
-        for row in range(self._parameters.rows):
-            for column in range(self._parameters.columns):
-                cell: Cell = self._grid[row][column]
-                self._update_cell_features(cell)
-
     def init(self) -> Self:
-        self._update_cells()
+        # Row-major order: every cell (but the first) already has its left and
+        # upper neighbours set, so the field grows coherently from the corner
+        for cell, neighbours in self._cells_with_neighbours:
+            self._update_cell_features(cell, neighbours)
+
+        self._initialized = True
 
         return self
 
     async def refresh(self) -> Self:
-        self._update_cells()
+        if not self._initialized:
+            return self.init()
+
+        # Random order, so updates don't drift in the row-major direction
+        random.shuffle(self._cells_with_neighbours)
+        for cell, neighbours in self._cells_with_neighbours:
+            self._update_cell_features(cell, neighbours)
 
         return self
 

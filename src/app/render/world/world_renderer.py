@@ -3,6 +3,14 @@ import pygame
 from app.model import RenderedCell, RenderedGrid
 from app.render import Renderer
 from app.render.grid import GridRenderer
+from app.shared.colors import (
+    TEMPERATURE_PALETTE,
+    TEMPERATURE_PALETTE_MAX,
+    TEMPERATURE_PALETTE_MIN,
+    TEMPERATURE_PALETTE_STEP,
+    WHITE,
+)
+from world.enums import FeatureName
 from world.world import Cell, World
 
 from .world_render_options import WorldRenderOptions
@@ -17,8 +25,25 @@ class WorldRenderer(Renderer[World]):
         self.grid_renderer = grid_renderer
         self.rendered_grid: RenderedGrid | None = None
 
-    def _map_temperature_to_color(self, cell) -> tuple[int, int, int]:
-        return pygame.Color(0, 0, 0)
+    def _map_temperature_to_color(self, cell: Cell) -> pygame.Color:
+        temperature_feature = cell.features_values.get(FeatureName.TEMPERATURE)
+        temperature = temperature_feature.value if temperature_feature else None
+
+        if temperature is None:
+            return WHITE
+
+        if temperature < TEMPERATURE_PALETTE_MIN:
+            return TEMPERATURE_PALETTE[0]
+
+        if temperature > TEMPERATURE_PALETTE_MAX:
+            return TEMPERATURE_PALETTE[-1]
+
+        # The last in-range interval is closed, so exactly the max still maps inside it
+        index = 1 + int(
+            (temperature - TEMPERATURE_PALETTE_MIN) // TEMPERATURE_PALETTE_STEP
+        )
+
+        return TEMPERATURE_PALETTE[min(index, len(TEMPERATURE_PALETTE) - 2)]
 
     def _map_cell_to_rendered_cell(self, cell: Cell) -> RenderedCell:
         return RenderedCell(
@@ -35,11 +60,7 @@ class WorldRenderer(Renderer[World]):
                 rendered_cell: RenderedCell = self._map_cell_to_rendered_cell(cell=cell)
                 rendered_cells[r].append(rendered_cell)
 
-        self.rendered_grid = RenderedGrid(
-            rows=rows, columns=columns, cells=rendered_cells
-        )
-
-        return self.rendered_grid
+        return RenderedGrid(rows=rows, columns=columns, cells=rendered_cells)
 
     def render(self, object: World) -> None:
         world: World = object

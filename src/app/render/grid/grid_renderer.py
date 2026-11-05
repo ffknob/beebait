@@ -73,6 +73,9 @@ class GridRenderer(Renderer[RenderedGrid]):
             (surface_height - (2 * vertical_margin)) // rendered_grid.rows
         )
 
+        self.cell_width = cell_width
+        self.cell_height = cell_height
+
         return cell_width, cell_height
 
     def _calculate_horizontal_lines(
@@ -132,7 +135,7 @@ class GridRenderer(Renderer[RenderedGrid]):
                     cell_height,
                 )
                 row_dimensions.append(cell_rect)
-                cells_coordinates.append(row_dimensions)
+            cells_coordinates.append(row_dimensions)
 
         self.cells_coordinates = cells_coordinates
 
@@ -169,13 +172,13 @@ class GridRenderer(Renderer[RenderedGrid]):
                 cell_color: pygame.Color = (
                     cell.color if cell.color else self.options.background_color
                 )
+                cell_rect: pygame.Rect = (
+                    cell.coordinates
+                    if cell.coordinates is not None
+                    else self.cells_coordinates[row][column]
+                )
 
-                if cell.coordinates is not None:
-                    pygame.draw.rect(
-                        self.options.surface,
-                        cell_color,
-                        cell.coordinates,
-                    )
+                pygame.draw.rect(self.options.surface, cell_color, cell_rect)
 
     @override
     def render(self, object: RenderedGrid) -> None:
@@ -190,6 +193,6 @@ class GridRenderer(Renderer[RenderedGrid]):
         if not self.cells_coordinates:
             self._calculate_cells_coordinates(rendered_grid)
 
+        self._render_cells(rendered_grid)
         self._render_horizontal_lines(rendered_grid)
         self._render_vertical_lines(rendered_grid)
-        self._render_cells(rendered_grid)
