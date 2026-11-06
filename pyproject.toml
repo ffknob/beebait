@@ -20,7 +20,7 @@ requires = ["uv_build>=0.10.11,<0.11.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = ["app", "beebait", "world"]
+module-name = ["app", "beebait", "swarm", "world"]
 
 [tool.pyright]
 venvPath = "."

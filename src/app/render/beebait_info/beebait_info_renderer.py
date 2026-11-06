@@ -41,7 +41,9 @@ class BeebaitInfoRenderer(Renderer[list[Beebait]]):
         beebaits: list[Beebait] = object
 
         surface = self.options.surface
-        horizontal_margin = surface.get_width() * self.options.horizontal_margin_percentage
+        horizontal_margin = (
+            surface.get_width() * self.options.horizontal_margin_percentage
+        )
         line_height = self.font.get_linesize() + self.options.line_spacing
         lines_per_column = max(1, surface.get_height() // line_height)
 

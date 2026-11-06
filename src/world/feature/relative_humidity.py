@@ -15,9 +15,10 @@ class RelativeHumidity(Feature[float]):
         self,
         previous_feature_value: FeatureValue | None,
         neighbours_values: list[FeatureValue],
+        hour: float,
     ) -> FeatureValue[float]:
-        value, target, base = self._next_value(
-            previous_feature_value, neighbours_values
+        value, target, base, offset, excursion = self._next_value(
+            previous_feature_value, neighbours_values, hour
         )
 
-        return FeatureValue(self.feature_name, value, target, base)
+        return FeatureValue(self.feature_name, value, target, base, offset, excursion)

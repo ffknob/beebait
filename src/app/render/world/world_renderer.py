@@ -38,7 +38,6 @@ class WorldRenderer(Renderer[World]):
         if temperature > TEMPERATURE_PALETTE_MAX:
             return TEMPERATURE_PALETTE[-1]
 
-        # The last in-range interval is closed, so exactly the max still maps inside it
         index = 1 + int(
             (temperature - TEMPERATURE_PALETTE_MIN) // TEMPERATURE_PALETTE_STEP
         )

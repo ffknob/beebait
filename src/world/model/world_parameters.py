@@ -6,3 +6,5 @@ class WorldParameters:
     columns: int = 20
     rows: int = 20
     refresh_rate: float = 1.0
+    time_scale: float = 600.0
+    start_hour: float = 6.0

@@ -32,13 +32,13 @@ class World:
         ]
         self._features = features if features else set()
 
-        # Each cell paired with its (up to 8) neighbours, in row-major order
         self._cells_with_neighbours: list[tuple[Cell, list[Cell]]] = [
             (self._grid[row][column], self._get_neighbours(row, column))
             for row in range(self._parameters.rows)
             for column in range(self._parameters.columns)
         ]
         self._initialized = False
+        self._simulated_seconds = self._parameters.start_hour * 3600
 
     @property
     def parameters(self) -> WorldParameters:
@@ -47,6 +47,10 @@ class World:
     @property
     def grid(self) -> list[list[Cell]]:
         return self._grid
+
+    @property
+    def hour(self) -> float:
+        return (self._simulated_seconds / 3600) % 24
 
     def _get_neighbours(self, row: int, column: int) -> list[Cell]:
         neighbours: list[Cell] = []
@@ -66,7 +70,6 @@ class World:
         for feature in self._features:
             previous_feature_value = cell.features_values.get(feature.feature_name)
 
-            # Neighbours not set yet (only possible during init) are skipped
             neighbours_values = [
                 value
                 for neighbour in neighbours
@@ -74,12 +77,12 @@ class World:
                 is not None
             ]
 
-            feature_value = feature.sample(previous_feature_value, neighbours_values)
+            feature_value = feature.sample(
+                previous_feature_value, neighbours_values, self.hour
+            )
             cell.set_feature_value(feature_value)
 
     def init(self) -> Self:
-        # Row-major order: every cell (but the first) already has its left and
-        # upper neighbours set, so the field grows coherently from the corner
         for cell, neighbours in self._cells_with_neighbours:
             self._update_cell_features(cell, neighbours)
 
@@ -87,11 +90,12 @@ class World:
 
         return self
 
-    async def refresh(self) -> Self:
+    async def refresh(self, elapsed_seconds: float) -> Self:
         if not self._initialized:
             return self.init()
 
-        # Random order, so updates don't drift in the row-major direction
+        self._simulated_seconds += elapsed_seconds * self._parameters.time_scale
+
         random.shuffle(self._cells_with_neighbours)
         for cell, neighbours in self._cells_with_neighbours:
             self._update_cell_features(cell, neighbours)

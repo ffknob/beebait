@@ -170,9 +170,9 @@ flowchart LR
 
 | Componente real | Equivalente simulado |
 | --- | --- |
-| Ambiente físico (clima, árvores) | `world` — grid com campos de temperatura e umidade |
-| Enxames de abelhas | Entidades `Swarm` com comportamento probabilístico |
-| Sensores da isca | Leitura do microclima da célula/isca + ruído gaussiano |
+| Ambiente físico (clima, árvores) | `world` — grid com campos de temperatura e umidade, ciclo diário e relógio simulado |
+| Enxames de abelhas | Entidades `Swarm` (pacote `swarm`) que vagam pelo grid e ocupam iscas |
+| Sensores da isca | Classes `Sensor` (pacote `beebait.sensor`) que leem o microclima da célula + ruído gaussiano |
 | Microcontrolador + TinyML | Classe `Beebait` com inferência em Python puro, usando coeficientes exportados |
 | Rádio LoRa | Camada que impõe limite de bytes e intervalo de envio antes de publicar |
 | Gateway + Network Server | Publicação direta no broker MQTT |
@@ -185,7 +185,7 @@ flowchart LR
 | **Python 3.13** | Linguagem principal |
 | **uv** | Gerenciamento de ambiente e dependências |
 | **pygame** | Visualização do mundo (heatmap) e da central (mapa) |
-| **numpy** | Geração dos campos ambientais (ruído suavizado, ciclo diário) |
+| **numpy** | *(planejado)* Extração de features das janelas de leituras |
 | **paho-mqtt** | Cliente MQTT (publicação pelas iscas, assinatura pela central) |
 | **Mosquitto** | Broker MQTT (via Docker) |
 | **scikit-learn** | Treino e avaliação do classificador de ocupação |
@@ -195,8 +195,8 @@ flowchart LR
 
 O desenvolvimento é **incremental**, com uma entrega funcional ao fim de cada fase:
 
-1. **Mundo simulado**: grid com temperatura e umidade espacialmente coerentes, ciclo dia/noite e relógio simulado desacoplado do FPS. Renderização como *heatmap*.
-2. **Enxames e iscas**: iscas posicionadas no mapa. Enxames surgem, vagam e ocupam iscas. Uma isca ocupada passa a ter microclima de colônia.
+1. **Mundo simulado** *(concluída)*: grid com temperatura e umidade espacialmente coerentes, ciclo dia/noite e relógio simulado desacoplado do FPS. Renderização como *heatmap*.
+2. **Enxames e iscas** *(concluída)*: iscas posicionadas no mapa. Enxames vagam e ocupam iscas. Uma isca ocupada passa a ter microclima de colônia.
 3. **Edge**: cada isca extrai features de uma janela de leituras e produz um payload compacto.
 4. **IA**: geração do dataset rotulado, treino, avaliação e exportação do modelo para a isca.
 5. **Comunicação e central**: MQTT, persistência e mapa do apicultor.
@@ -208,24 +208,35 @@ O desenvolvimento é **incremental**, com uma entrega funcional ao fim de cada f
 
 ### 3.1 Mundo simulado (`src/world`)
 
-- **Grid** de `colunas × linhas` células, cada uma com valores de *features* ambientais (`Temperature`, `RelativeHumidity`).
-- Cada feature é amostrada a partir de estatísticas (`min`, `max`, `média`) com uma distribuição **Beta** reescalonada, o que mantém os valores dentro do intervalo e concentrados em torno da média.
-- **Evolução planejada** para dar realismo:
-  - campo base espacialmente suave (ruído suavizado), para que células vizinhas tenham temperaturas parecidas;
-  - ciclo diário: `T(x, y, t) = base(x, y) + A · sin(2π · t / 24h) + ε`;
-  - relógio simulado (ex.: 1 s real = 10 min simulados).
+- **Grid** de `colunas × linhas` células (100 × 100 na aplicação), cada uma com valores de *features* ambientais (`Temperature`, `RelativeHumidity`), guardados como `FeatureValue` e identificados pelo enum `FeatureName`.
+- Na criação do mundo, cada célula é amostrada a partir de estatísticas (`min`, `max`, `média`) com uma distribuição **Beta** reescalonada, o que mantém os valores dentro do intervalo e concentrados em torno da média. As células são preenchidas em ordem de linha e puxadas para perto da média das vizinhas já preenchidas, o que gera regiões quentes e frias **espacialmente coerentes**.
+- A cada ciclo, cada célula (em ordem aleatória) caminha em direção a um **alvo**, no máximo `max_oscillation` por passo. Ao alcançar o alvo, sorteia outro:
+  - perto do seu valor inicial (`max_base_deviation`), para que as regiões quentes e frias não se dissolvam;
+  - a no máximo `max_neighbour_deviation` da média das 8 vizinhas, para manter o campo suave;
+  - com probabilidade `excursion_probability`, o alvo é uma **excursão**: mais distante do valor inicial (até `max_excursion`) e sem a restrição das vizinhas, o que cria focos quentes ou frios que surgem e desaparecem.
+- **Ciclo diário**: um deslocamento comum a todas as células, `A · cos(2π · (h − h_pico) / 24)`, somado ao valor local. A temperatura tem amplitude de 6 °C com pico às 15 h; a umidade, de 2 % com pico às 5 h.
+- **Relógio simulado** desacoplado do FPS: o mundo avança `tempo real decorrido × time_scale`. O padrão é 600, ou seja, 1 s real = 10 min simulados (um dia em 144 s). O mundo começa às 6 h.
+- Todos esses parâmetros ficam em `FeatureOptions` e `WorldParameters`.
 
 ### 3.2 Visualização (`src/app/render`)
 
 - Arquitetura de *renderers* genéricos (`Renderer[T]`) configurados por *options* imutáveis (`@dataclass(frozen=True)`).
 - `WorldRenderer` converte o `World` em um `RenderedGrid` desacoplado do domínio, e o `GridRenderer` desenha células e linhas.
-- **Paleta de temperatura** com 25 cores, uma a cada 2 °C, de −10 °C a +40 °C (frio → quente).
+- **Paleta de temperatura** (`app/shared/colors.py`) com 22 cores: uma abaixo de 0 °C, uma a cada 2 °C de 0 °C a 40 °C e uma acima de 40 °C (frio → quente).
+- A janela (1280 × 900) é dividida em duas áreas:
+  - **Mapa**: o *heatmap*, as iscas (`BeebaitRenderer`: magenta = vazia, azul = ocupada) e os enxames em movimento (`SwarmRenderer`: preto). À direita do mapa ficam o **relógio simulado** (`ClockRenderer`) e a **legenda** das cores (`LegendRenderer`).
+  - **Painel inferior** (`BeebaitInfoRenderer`): lista de todas as iscas no formato `Beebait #123: 23º / 35º; occupied` (temperatura externa / interna; estado). Iscas ocupadas aparecem em negrito e azul.
 
-### 3.3 Iscas e enxames *(planejado)*
+### 3.3 Iscas e enxames (`src/beebait`, `src/swarm`)
 
-- `Beebait(id, posição)`: identificação única e localização no grid.
-- `Swarm`: surge aleatoriamente na época de enxameação e escolhe uma isca próxima com probabilidade proporcional à sua atratividade (sombra, temperatura).
-- Isca ocupada: temperatura interna de ~34–35 °C com baixa variância, umidade elevada e "sinal acústico" representado por features (energia e frequência dominante), sem gerar áudio de verdade.
+- `Beebait(id, posição, sensores)`: identificação única (0 a 65 535, pois o ID ocupa 2 bytes no payload) e localização no grid (`GridPosition`). Guarda o estado de ocupação (verdade de campo) e as últimas leituras como `FeatureValue`.
+- **Sensores** (`beebait.sensor`): a cada ciclo, a isca lê a célula onde está por meio dos seus sensores (`read_sensors`):
+  - `ExternalTemperatureSensor`: temperatura da célula + ruído gaussiano;
+  - `InternalTemperatureSensor`: ~34,5 °C com baixa variância se a isca estiver ocupada; caso contrário, acompanha o ambiente (~0,5 °C acima da externa). É uma simplificação: o sensor recebe a ocupação real para simular o microclima da colônia.
+- `Swarm(id, posição)`: a aplicação cria o dobro de enxames em relação às iscas (`TOTAL_SWARMS = 2 × TOTAL_BEEBAITS`), em posições aleatórias a pelo menos 3 células de qualquer isca, de modo que **todas as iscas começam vazias**.
+- A cada ciclo, cada enxame se move para uma célula vizinha aleatória dentro do grid. Se ficar na célula de uma isca vazia ou em uma de suas 8 vizinhas, **ocupa a isca** e deixa de se mover. Cada isca recebe um único enxame.
+- O ciclo da aplicação (`cycle`) atualiza o mundo, move os enxames, resolve as ocupações e, por fim, faz cada isca ler seus sensores.
+- **Evolução planejada**: enxames que surgem na época de enxameação e escolhem iscas pela atratividade (sombra, temperatura); umidade interna elevada e "sinal acústico" representado por features (energia e frequência dominante), sem gerar áudio de verdade.
 
 ### 3.4 Inferência na borda *(planejado)*
 
@@ -347,7 +358,7 @@ uv sync
 ### 6.3 Execução
 
 ```bash
-# Simulador do mundo (heatmap)
+# Simulador do mundo, iscas e enxames (heatmap)
 uv run app
 
 # (planejado) Broker MQTT
@@ -368,15 +379,21 @@ beebait/
 ├── pyproject.toml
 └── src/
     ├── world/                # Simulação do ambiente físico
-    │   ├── enums/            #   nomes das features
-    │   ├── feature/          #   Temperature, RelativeHumidity (amostragem)
-    │   ├── model/            #   parâmetros e estatísticas
-    │   └── world/            #   World (grid) e Cell
-    ├── app/                  # Visualização e (futura) central
-    │   ├── model/            #   RenderedGrid, RenderedCell
-    │   ├── render/           #   Renderers (world, grid, cell)
-    │   └── shared/           #   cores
-    └── beebait/              # (planejado) firmware simulado da isca
+    │   ├── enums/            #   nomes das features (FeatureName)
+    │   ├── feature/          #   Temperature, RelativeHumidity, FeatureValue
+    │   ├── model/            #   parâmetros, estatísticas, opções e GridPosition
+    │   └── world/            #   World (grid, relógio) e Cell
+    ├── beebait/              # Firmware simulado da isca
+    │   ├── beebait/          #   Beebait
+    │   └── sensor/           #   sensores de temperatura interna e externa
+    ├── swarm/                # Enxames
+    │   └── swarm/            #   Swarm
+    └── app/                  # Visualização e (futura) central
+        ├── main.py           #   criação do mundo, iscas, enxames e ciclo principal
+        ├── model/            #   RenderedGrid, RenderedCell, LegendEntry
+        ├── render/           #   renderers (world, grid, cell, beebait, beebait_info,
+        │                     #   swarm, clock, legend)
+        └── shared/           #   cores
 ```
 
 ---
