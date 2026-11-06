@@ -2,6 +2,8 @@ import pygame
 
 WHITE = pygame.Color("white")
 BLACK = pygame.Color("black")
+BEEBAIT_COLOR = pygame.Color(255, 0, 255)
+OCCUPIED_BEEBAIT_COLOR = pygame.Color(0, 0, 255)
 
 TEMPERATURE_PALETTE_MIN = 0.0
 TEMPERATURE_PALETTE_MAX = 40.0
