@@ -1,0 +1,7 @@
+.git
+.venv
+**/__pycache__
+docker
+x.txt
+*.md
+!README.md

@@ -1,4 +1,5 @@
 import asyncio
+import os
 import random
 
 import pygame
@@ -12,6 +13,7 @@ from app.render.swarm import SwarmRenderer, SwarmRenderOptions
 from app.render.grid import GridRenderer, GridRenderOptions
 from app.render.world import WorldRenderer, WorldRenderOptions
 from beebait.beebait import Beebait
+from beebait.communication import MqttTransmitter, Transmitter
 from beebait.inference import InferenceEngine, InternalTemperatureRuleModel
 from beebait.sensor import ExternalTemperatureSensor, InternalTemperatureSensor, Sensor
 from world.feature import RelativeHumidity, Temperature
@@ -56,6 +58,8 @@ PAUSE_BUTTON_RECT = pygame.Rect(
 STEP_BUTTON_RECT = PAUSE_BUTTON_RECT.move(0, BUTTON_HEIGHT + BUTTON_SPACING)
 RESET_BUTTON_RECT = STEP_BUTTON_RECT.move(0, BUTTON_HEIGHT + BUTTON_SPACING)
 STEP_ELAPSED_SECONDS = 1 / FPS
+MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 
 
 def create_world() -> World:
@@ -158,11 +162,19 @@ def occupy_beebaits(swarms: list[Swarm], beebaits: list[Beebait]) -> None:
             swarm.settle()
 
 
+def create_transmitter() -> Transmitter | None:
+    if not MQTT_HOST:
+        return None
+
+    return MqttTransmitter(host=MQTT_HOST, port=MQTT_PORT)
+
+
 async def cycle(
     world: World,
     beebaits: list[Beebait],
     swarms: list[Swarm],
     elapsed_seconds: float,
+    transmitter: Transmitter | None = None,
 ) -> None:
     await world.refresh(elapsed_seconds)
 
@@ -174,6 +186,14 @@ async def cycle(
     for beebait in beebaits:
         beebait.read_sensors(world.grid[beebait.position.row][beebait.position.column])
         beebait.infer()
+
+        if transmitter is not None:
+            beebait.transmit(
+                transmitter,
+                world.simulated_seconds,
+                world.hour,
+                world.simulated_timestamp,
+            )
 
 
 def create_grid_renderer(surface: pygame.Surface) -> GridRenderer:
@@ -262,12 +282,14 @@ def create_button_renderer(surface: pygame.Surface) -> ButtonRenderer:
     return ButtonRenderer(options=button_render_options)
 
 
-async def create_simulation() -> tuple[World, list[Beebait], list[Swarm]]:
+async def create_simulation(
+    transmitter: Transmitter | None = None,
+) -> tuple[World, list[Beebait], list[Swarm]]:
     world: World = create_world()
     beebaits: list[Beebait] = create_beebaits(world)
     swarms: list[Swarm] = create_swarms(world, beebaits)
 
-    await cycle(world, beebaits, swarms, 0.0)
+    await cycle(world, beebaits, swarms, 0.0, transmitter)
 
     return world, beebaits, swarms
 
@@ -280,7 +302,9 @@ async def run():
     paused = False
     elapsed_seconds = 0.0
 
-    world, beebaits, swarms = await create_simulation()
+    transmitter: Transmitter | None = create_transmitter()
+
+    world, beebaits, swarms = await create_simulation(transmitter)
 
     world_surface = screen.subsurface(
         (0, 0, WINDOW_WIDTH, WINDOW_HEIGHT - INFO_PANEL_HEIGHT)
@@ -314,14 +338,16 @@ async def run():
                     paused = not paused
                 elif STEP_BUTTON_RECT.collidepoint(event.pos):
                     paused = True
-                    await cycle(world, beebaits, swarms, STEP_ELAPSED_SECONDS)
+                    await cycle(
+                        world, beebaits, swarms, STEP_ELAPSED_SECONDS, transmitter
+                    )
                 elif RESET_BUTTON_RECT.collidepoint(event.pos):
-                    world, beebaits, swarms = await create_simulation()
+                    world, beebaits, swarms = await create_simulation(transmitter)
 
         screen.fill(WHITE)
 
         if not paused:
-            await cycle(world, beebaits, swarms, elapsed_seconds)
+            await cycle(world, beebaits, swarms, elapsed_seconds, transmitter)
 
         world_renderer.render(world)
         swarm_renderer.render(swarms)
@@ -340,6 +366,9 @@ async def run():
         pygame.display.flip()
 
         elapsed_seconds = clock.tick(FPS) / 1000
+
+    if transmitter is not None:
+        transmitter.close()
 
     pygame.quit()
 

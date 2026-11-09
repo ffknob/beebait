@@ -1,4 +1,5 @@
 import random
+from datetime import UTC, datetime
 from typing import Self
 
 from world.feature import Feature
@@ -39,6 +40,11 @@ class World:
         ]
         self._initialized = False
         self._simulated_seconds = self._parameters.start_hour * 3600
+        self._epoch = (
+            datetime.now(UTC)
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .timestamp()
+        )
 
     @property
     def parameters(self) -> WorldParameters:
@@ -47,6 +53,14 @@ class World:
     @property
     def grid(self) -> list[list[Cell]]:
         return self._grid
+
+    @property
+    def simulated_seconds(self) -> float:
+        return self._simulated_seconds
+
+    @property
+    def simulated_timestamp(self) -> float:
+        return self._epoch + self._simulated_seconds
 
     @property
     def hour(self) -> float:
