@@ -12,6 +12,7 @@ from app.render.swarm import SwarmRenderer, SwarmRenderOptions
 from app.render.grid import GridRenderer, GridRenderOptions
 from app.render.world import WorldRenderer, WorldRenderOptions
 from beebait.beebait import Beebait
+from beebait.inference import InferenceEngine, InternalTemperatureRuleModel
 from beebait.sensor import ExternalTemperatureSensor, InternalTemperatureSensor, Sensor
 from world.feature import RelativeHumidity, Temperature
 from world.model import (
@@ -95,12 +96,24 @@ def get_grid_positions(world: World) -> list[GridPosition]:
     ]
 
 
+def create_inference_engine() -> InferenceEngine:
+    inference_engine = InferenceEngine()
+    inference_engine.add_model(InternalTemperatureRuleModel(), weight=1.0)
+
+    return inference_engine
+
+
 def create_beebaits(world: World) -> list[Beebait]:
     sensors: list[Sensor] = [ExternalTemperatureSensor(), InternalTemperatureSensor()]
     positions = get_grid_positions(world)
 
     return [
-        Beebait(id=id, position=position, sensors=sensors)
+        Beebait(
+            id=id,
+            position=position,
+            sensors=sensors,
+            inference_engine=create_inference_engine(),
+        )
         for id, position in enumerate(
             random.sample(positions, min(TOTAL_BEEBAITS, len(positions))), start=1
         )
@@ -160,6 +173,7 @@ async def cycle(
 
     for beebait in beebaits:
         beebait.read_sensors(world.grid[beebait.position.row][beebait.position.column])
+        beebait.infer()
 
 
 def create_grid_renderer(surface: pygame.Surface) -> GridRenderer:

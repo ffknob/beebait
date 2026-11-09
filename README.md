@@ -138,12 +138,14 @@ flowchart LR
     subgraph SIM["Processo 1 — Simulador (mundo + iscas)"]
         W["World<br/>grid de células<br/>temperatura · umidade<br/>ciclo diário"]
         SW["Enxames<br/>vagam e ocupam iscas"]
-        BB["Beebaits<br/>sensores com ruído<br/>janela de leituras<br/>modelo embarcado"]
+        BB["Beebaits<br/>sensores com ruído"]
+        INF["Motor de inferência (edge)<br/>modelos ponderados<br/>→ conclusão + confiança"]
         LORA["Rádio LoRa simulado<br/>limite de payload<br/>intervalo mínimo de envio"]
         GV["Render 'god view'<br/>(pygame)<br/>heatmap + verdade de campo"]
         W --> BB
         SW --> BB
-        BB --> LORA
+        BB -- "leituras" --> INF
+        INF --> LORA
         W --> GV
         SW --> GV
     end
@@ -165,7 +167,7 @@ flowchart LR
 
     LORA -- "publish<br/>beebait/{id}/uplink" --> BRK -- subscribe --> SUB
     BB -- "features + rótulo real" --> DS
-    SK -- "coeficientes exportados" --> BB
+    SK -- "coeficientes exportados" --> INF
 ```
 
 | Componente real | Equivalente simulado |
@@ -173,7 +175,7 @@ flowchart LR
 | Ambiente físico (clima, árvores) | `world` — grid com campos de temperatura e umidade, ciclo diário e relógio simulado |
 | Enxames de abelhas | Entidades `Swarm` (pacote `swarm`) que vagam pelo grid e ocupam iscas |
 | Sensores da isca | Classes `Sensor` (pacote `beebait.sensor`) que leem o microclima da célula + ruído gaussiano |
-| Microcontrolador + TinyML | Classe `Beebait` com inferência em Python puro, usando coeficientes exportados |
+| Microcontrolador + TinyML | `InferenceEngine` (pacote `beebait.inference`): submete as leituras a vários modelos e pondera os resultados. Hoje há um modelo de regra fixa; os modelos treinados entram no mesmo ponto |
 | Rádio LoRa | Camada que impõe limite de bytes e intervalo de envio antes de publicar |
 | Gateway + Network Server | Publicação direta no broker MQTT |
 | Central / aplicação | Processo `app`: assinante MQTT, SQLite e mapa em pygame |
@@ -189,6 +191,7 @@ flowchart LR
 | **paho-mqtt** | Cliente MQTT (publicação pelas iscas, assinatura pela central) |
 | **Mosquitto** | Broker MQTT (via Docker) |
 | **scikit-learn** | Treino e avaliação do classificador de ocupação |
+| **PyTorch** *(planejado)* | Implementação real do modelo de inferência, que substituirá o mock atual (ver [Próximos passos](#51-próximos-passos)) |
 | **SQLite** | Persistência da telemetria na central |
 
 ### 2.5 Metodologia
@@ -197,7 +200,7 @@ O desenvolvimento é **incremental**, com uma entrega funcional ao fim de cada f
 
 1. **Mundo simulado** *(concluída)*: grid com temperatura e umidade espacialmente coerentes, ciclo dia/noite e relógio simulado desacoplado do FPS. Renderização como *heatmap*.
 2. **Enxames e iscas** *(concluída)*: iscas posicionadas no mapa. Enxames vagam e ocupam iscas. Uma isca ocupada passa a ter microclima de colônia.
-3. **Edge**: cada isca extrai features de uma janela de leituras e produz um payload compacto.
+3. **Edge** *(em andamento)*: arquitetura de inferência na isca concluída, com um modelo de regra fixa sobre a temperatura interna. Faltam as features de janela de leituras e o payload compacto.
 4. **IA**: geração do dataset rotulado, treino, avaliação e exportação do modelo para a isca.
 5. **Comunicação e central**: MQTT, persistência e mapa do apicultor.
 6. **Validação e documentação**: comparação entre a verdade de campo e a inferência, este relatório e o vídeo.
@@ -225,22 +228,65 @@ O desenvolvimento é **incremental**, com uma entrega funcional ao fim de cada f
 - **Paleta de temperatura** (`app/shared/colors.py`) com 22 cores: uma abaixo de 0 °C, uma a cada 2 °C de 0 °C a 40 °C e uma acima de 40 °C (frio → quente).
 - A janela (1280 × 900) é dividida em duas áreas:
   - **Mapa**: o *heatmap*, as iscas (`BeebaitRenderer`: magenta = vazia, azul = ocupada) e os enxames em movimento (`SwarmRenderer`: preto). À direita do mapa ficam o **relógio simulado** (`ClockRenderer`) e a **legenda** das cores (`LegendRenderer`).
-  - **Painel inferior** (`BeebaitInfoRenderer`): lista de todas as iscas no formato `Beebait #123: 23º / 35º; occupied` (temperatura externa / interna; estado). Iscas ocupadas aparecem em negrito e azul.
+  - **Painel inferior** (`BeebaitInfoRenderer`): lista de todas as iscas no formato `#123: 23º / 35º; occupied → O 80%` (temperatura externa / interna; estado real → conclusão da isca e confiança, com `O` = *occupied* (ocupada) e `E` = *empty* (vazia)). Iscas ocupadas aparecem em negrito e azul. Comparar o estado real com a conclusão mostra, na tela, quando a isca acerta ou erra.
 
 ### 3.3 Iscas e enxames (`src/beebait`, `src/swarm`)
 
-- `Beebait(id, posição, sensores)`: identificação única (0 a 65 535, pois o ID ocupa 2 bytes no payload) e localização no grid (`GridPosition`). Guarda o estado de ocupação (verdade de campo) e as últimas leituras como `FeatureValue`.
+- `Beebait(id, posição, sensores, motor de inferência)`: identificação única (0 a 65 535, pois o ID ocupa 2 bytes no payload) e localização no grid (`GridPosition`). Guarda o estado de ocupação real (`occupied`, verdade de campo usada só pela simulação), as últimas leituras como `FeatureValue` e a **conclusão** a que a própria isca chegou (`conclusion`, ver [3.4](#34-inferência-na-borda-srcbeebaitinference)).
 - **Sensores** (`beebait.sensor`): a cada ciclo, a isca lê a célula onde está por meio dos seus sensores (`read_sensors`):
   - `ExternalTemperatureSensor`: temperatura da célula + ruído gaussiano;
   - `InternalTemperatureSensor`: ~34,5 °C com baixa variância se a isca estiver ocupada; caso contrário, acompanha o ambiente (~0,5 °C acima da externa). É uma simplificação: o sensor recebe a ocupação real para simular o microclima da colônia.
-- `Swarm(id, posição)`: a aplicação cria o dobro de enxames em relação às iscas (`TOTAL_SWARMS = 2 × TOTAL_BEEBAITS`), em posições aleatórias a pelo menos 3 células de qualquer isca, de modo que **todas as iscas começam vazias**.
+- `Swarm(id, posição)`: a aplicação cria metade do número de iscas em enxames (`TOTAL_SWARMS = 0,5 × TOTAL_BEEBAITS`), em posições aleatórias a pelo menos 3 células de qualquer isca, de modo que **todas as iscas começam vazias**.
 - A cada ciclo, cada enxame se move para uma célula vizinha aleatória dentro do grid. Se ficar na célula de uma isca vazia ou em uma de suas 8 vizinhas, **ocupa a isca** e deixa de se mover. Cada isca recebe um único enxame.
-- O ciclo da aplicação (`cycle`) atualiza o mundo, move os enxames, resolve as ocupações e, por fim, faz cada isca ler seus sensores.
+- O ciclo da aplicação (`cycle`) atualiza o mundo, move os enxames, resolve as ocupações e, por fim, faz cada isca ler seus sensores (`read_sensors`) e submeter as leituras ao motor de inferência (`infer`).
 - **Evolução planejada**: enxames que surgem na época de enxameação e escolhem iscas pela atratividade (sombra, temperatura); umidade interna elevada e "sinal acústico" representado por features (energia e frequência dominante), sem gerar áudio de verdade.
 
-### 3.4 Inferência na borda *(planejado)*
+### 3.4 Inferência na borda (`src/beebait/inference`)
 
-Features calculadas pela isca sobre uma janela das últimas *N* leituras:
+A isca não envia leituras brutas: ela as **submete a modelos de inferência** localmente e transmite só a conclusão. A decisão de ocupação não vem de um único modelo. Cada modelo olha para um aspecto (temperatura, umidade, som...) e dá sua própria inferência, e as inferências são **ponderadas** para formar a conclusão final.
+
+```mermaid
+flowchart LR
+    S["Sensores<br/>read_sensors()"] --> FV[("Últimas leituras<br/>FeatureValue por FeatureName")]
+    FV -- "submit(features)" --> ENG
+
+    subgraph ENG["InferenceEngine"]
+        direction LR
+        M1["InternalTemperatureRuleModel<br/>peso 1,0<br/><i>(implementado)</i>"]
+        M2["Modelo de umidade interna<br/><i>(planejado)</i>"]
+        M3["Modelo bioacústico (TinyML)<br/><i>(planejado)</i>"]
+        STR["ConclusionStrategy<br/>WeightedAverageStrategy"]
+        M1 -- "Inference" --> STR
+        M2 -. "Inference" .-> STR
+        M3 -. "Inference" .-> STR
+    end
+
+    STR -- "Conclusion<br/>ocupada? + confiança" --> OUT["beebait.conclusion<br/>→ payload LoRa"]
+```
+
+**Componentes**
+
+| Classe | Papel |
+| --- | --- |
+| `InferenceModel` | Classe base de um modelo. Declara as features de que precisa (`required_features`) e expõe `infer(features)`. Primeiro confere se todas as leituras necessárias existem; se faltar alguma, o modelo não opina (retorna `None`). Depois monta o vetor de entrada (`_extract_input`) e chama `_predict`. Um modelo treinado só precisa implementar `_predict`. |
+| `InternalTemperatureRuleModel` | Modelo atual, uma **regra fixa** que ocupa o lugar de um modelo treinado: a isca é considerada ocupada se a temperatura interna estiver entre **33 °C e 36 °C** (faixa em que uma colônia mantém a cria). Responde sempre com confiança fixa de 80 %. |
+| `Inference` | Resultado de um modelo: nome do modelo, ocupada ou não e confiança (0 a 1). |
+| `ConclusionStrategy` | Interface da ponderação: recebe pares (inferência, peso) e devolve uma `Conclusion`. Permite trocar a forma de ponderar sem mexer nos modelos. |
+| `WeightedAverageStrategy` | Ponderação atual: média ponderada das probabilidades de ocupação. |
+| `Conclusion` | Decisão final: ocupada ou não, confiança e as inferências que a geraram (útil para auditar a decisão). |
+| `InferenceEngine` | O *middleware* da isca. Guarda os modelos com seus pesos (`add_model(model, weight)`) e a estratégia. `submit(features)` roda todos os modelos e pondera os resultados. |
+
+**Ponderação.** Cada inferência *i*, com peso *wᵢ* e confiança *cᵢ*, vira uma probabilidade de ocupação *pᵢ* = *cᵢ* se o modelo disse "ocupada" ou 1 − *cᵢ* se disse "vazia". A probabilidade final é
+
+```
+P(ocupada) = Σ wᵢ · pᵢ / Σ wᵢ
+```
+
+A isca conclui "ocupada" se *P* ≥ 0,5 (limiar configurável), com confiança *P*, e "vazia" caso contrário, com confiança 1 − *P*. Por exemplo, um modelo com peso 2 que diz "ocupada" com 90 % e outro com peso 1 que diz "vazia" com 80 % dão *P* = (2 · 0,9 + 1 · 0,2) / 3 ≈ 0,67, ou seja, ocupada com 67 % de confiança. Modelos sem leituras suficientes ficam de fora; se nenhum modelo puder opinar, não há conclusão.
+
+**Limitações atuais.** Com um único modelo, a conclusão é a própria regra. O sensor interno simulado gera ~34,5 °C quando a isca está ocupada, então a regra acerta quase sempre. Mas uma isca vazia em um dia muito quente (temperatura externa acima de ~32,5 °C) pode ser confundida com uma ocupada. É justamente esse tipo de erro que os próximos modelos e a ponderação devem corrigir.
+
+**Próximos modelos** (planejados), calculados sobre uma janela das últimas *N* leituras:
 
 | Feature | Intuição |
 | --- | --- |
@@ -250,21 +296,21 @@ Features calculadas pela isca sobre uma janela das últimas *N* leituras:
 | `energia_acústica` | O zumbido indica presença |
 | `freq_dominante` | Separa abelhas de outros ruídos |
 
-O modelo, uma regressão logística ou árvore rasa treinada offline, tem seus coeficientes exportados e roda em **Python puro** na isca, imitando o que seria um modelo TinyML num microcontrolador.
+Esses modelos serão treinados offline (PyTorch ou similar) e exportados para rodar na isca, imitando o que seria um modelo TinyML num microcontrolador. Entram no motor como mais um `InferenceModel`, com seu peso. O plano está em [Próximos passos](#51-próximos-passos).
 
 ### 3.5 Protocolo de comunicação *(planejado)*
 
 **Payload LoRa (uplink)**: compacto, respeitando o limite do rádio:
 
 ```
-123:O:92        → isca 123, Ocupada, confiança 92%
-123:V:88        → isca 123, Vazia, confiança 88%
+123:O:92        → isca 123, Occupied (ocupada), confiança 92%
+123:E:88        → isca 123, Empty (vazia), confiança 88%
 ```
 
 | Campo | Tamanho (binário) | Descrição |
 | --- | --- | --- |
 | ID da isca | 2 bytes | até 65 535 iscas |
-| Estado | 1 byte | `V` vazia / `O` ocupada |
+| Estado | 1 byte | `E` *empty* (vazia) / `O` *occupied* (ocupada) |
 | Confiança | 1 byte | 0–100 % |
 | Temp. interna (opcional) | 2 bytes | °C × 100 |
 | Bateria (opcional) | 1 byte | % |
@@ -328,7 +374,25 @@ Pontos já observados:
 - **Simulação como fonte de dados rotulados**: na ausência de hardware e de um histórico real, simular o ambiente permitiu treinar e validar o modelo. A limitação é que o modelo aprende o comportamento *do simulador*, não de colônias reais.
 - **Separação domínio × visualização**: desacoplar o `World` dos *renderers* facilitou evoluir a simulação sem quebrar a interface.
 
-### Trabalhos futuros
+### 5.1 Próximos passos
+
+**Implementação do modelo de inferência** *(componente ainda faltante)*
+
+O `InternalTemperatureRuleModel` é apenas um **mock**: uma regra fixa (temperatura interna entre 33 °C e 36 °C) com confiança constante, que ocupa o lugar de um modelo de verdade só para validar a arquitetura de inferência. O código está marcado com um `TODO`. Para implementá-lo:
+
+1. **Dataset**: gerar, com o simulador, leituras rotuladas com a ocupação real (`beebait.occupied`), incluindo situações difíceis como dias muito quentes com a isca vazia.
+2. **Features**: calcular as features de janela descritas em [3.4](#34-inferência-na-borda-srcbeebaitinference) (`ΔT`, `σ(T_interna)`, umidade interna, energia acústica, frequência dominante).
+3. **Treino**: treinar um modelo pequeno com **PyTorch** (ou similar), por exemplo uma rede densa rasa ou uma regressão logística, e avaliá-lo com precisão, recall, F1 e matriz de confusão (seção [4.1](#41-validação-do-modelo-de-ocupação)).
+4. **Exportação para a borda**: exportar o modelo treinado (por exemplo TorchScript ou ONNX, com quantização) num formato leve, adequado a um microcontrolador (TinyML).
+5. **Integração**: criar uma subclasse de `InferenceModel` que carrega o modelo exportado e o executa em `_predict`, e registrá-la no `InferenceEngine` com o seu peso. A confiança passa a ser a probabilidade dada pelo modelo, e não mais um valor fixo.
+
+**Demais etapas pendentes**
+
+- Payload compacto e rádio LoRa simulado (limite de bytes e intervalo de envio).
+- Publicação via MQTT e central do apicultor (assinante, SQLite e mapa).
+- Validação ponta a ponta e preenchimento da [Análise de Resultados](#4-análise-de-resultados).
+
+### 5.2 Trabalhos futuros
 
 - Hardware real (ESP32 + LoRa + sensores) e coleta de áudio real de colônias.
 - Modelo de bioacústica para presença de rainha, saúde da colônia e preparação para enxamear.
@@ -385,6 +449,7 @@ beebait/
     │   └── world/            #   World (grid, relógio) e Cell
     ├── beebait/              # Firmware simulado da isca
     │   ├── beebait/          #   Beebait
+    │   ├── inference/        #   motor de inferência, modelos e ponderação
     │   └── sensor/           #   sensores de temperatura interna e externa
     ├── swarm/                # Enxames
     │   └── swarm/            #   Swarm

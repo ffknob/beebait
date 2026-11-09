@@ -34,7 +34,14 @@ class BeebaitInfoRenderer(Renderer[list[Beebait]]):
         )
         status = "occupied" if beebait.occupied else "empty"
 
-        return f"Beebait #{beebait.id}: {external_temperature} / {internal_temperature}; {status}"
+        conclusion = beebait.conclusion
+        inferred = (
+            f"{'O' if conclusion.occupied else 'E'} {conclusion.confidence:.0%}"
+            if conclusion
+            else "--"
+        )
+
+        return f"#{beebait.id}: {external_temperature} / {internal_temperature}; {status} → {inferred}"
 
     @override
     def render(self, object: list[Beebait]) -> None:

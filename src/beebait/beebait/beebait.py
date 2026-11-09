@@ -1,3 +1,4 @@
+from beebait.inference import Conclusion, InferenceEngine
 from beebait.sensor import Sensor
 from world.feature import FeatureValue
 from world.model import GridPosition
@@ -14,6 +15,7 @@ class Beebait:
         occupied: bool = False,
         sensors: list[Sensor] | None = None,
         features_values: list[FeatureValue] | None = None,
+        inference_engine: InferenceEngine | None = None,
     ):
         if not 0 <= id <= MAX_BEEBAIT_ID:
             raise ValueError(f"Beebait id must be between 0 and {MAX_BEEBAIT_ID}")
@@ -23,6 +25,10 @@ class Beebait:
         self._occupied = occupied
         self._sensors = sensors if sensors else []
         self._features_values: dict[str, FeatureValue] = {}
+        self._inference_engine = (
+            inference_engine if inference_engine else InferenceEngine()
+        )
+        self._conclusion: Conclusion | None = None
 
         for feature_value in features_values or []:
             self.set_feature_value(feature_value)
@@ -47,6 +53,10 @@ class Beebait:
     def features_values(self) -> dict[str, FeatureValue]:
         return self._features_values
 
+    @property
+    def conclusion(self) -> Conclusion | None:
+        return self._conclusion
+
     def occupy(self) -> None:
         self._occupied = True
 
@@ -62,5 +72,10 @@ class Beebait:
             if feature_value is not None:
                 self.set_feature_value(feature_value)
 
+    def infer(self) -> Conclusion | None:
+        self._conclusion = self._inference_engine.submit(self._features_values)
+
+        return self._conclusion
+
     def __repr__(self) -> str:
-        return f"Beebait(id={self._id}, position={self._position}, occupied={self._occupied}, features_values={self._features_values})"
+        return f"Beebait(id={self._id}, position={self._position}, occupied={self._occupied}, conclusion={self._conclusion}, features_values={self._features_values})"
