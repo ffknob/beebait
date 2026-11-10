@@ -192,7 +192,6 @@ async def cycle(
                 transmitter,
                 world.simulated_seconds,
                 world.hour,
-                world.simulated_timestamp,
             )
 
 

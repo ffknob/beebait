@@ -1,3 +1,5 @@
+import time
+
 from beebait.communication import Transmitter, Uplink
 from beebait.inference import Conclusion, InferenceEngine
 from beebait.sensor import Sensor
@@ -89,10 +91,10 @@ class Beebait:
         return float(feature_value.value) if feature_value else None
 
     def _create_uplink(
-        self, conclusion: Conclusion, simulated_hour: float, simulated_timestamp: float
+        self, conclusion: Conclusion, simulated_hour: float
     ) -> Uplink:
         return Uplink(
-            timestamp=int(simulated_timestamp * 1000),
+            timestamp=int(time.time() * 1000),
             beebait_id=self._id,
             occupied=conclusion.occupied,
             confidence=conclusion.confidence,
@@ -111,7 +113,6 @@ class Beebait:
         transmitter: Transmitter,
         simulated_seconds: float,
         simulated_hour: float,
-        simulated_timestamp: float,
     ) -> Uplink | None:
         if self._conclusion is None:
             return None
@@ -123,9 +124,7 @@ class Beebait:
         ):
             return None
 
-        uplink = self._create_uplink(
-            self._conclusion, simulated_hour, simulated_timestamp
-        )
+        uplink = self._create_uplink(self._conclusion, simulated_hour)
         transmitter.transmit(uplink)
         self._last_transmission = simulated_seconds
 

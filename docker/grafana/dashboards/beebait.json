@@ -10,8 +10,8 @@
   "editable": true,
   "refresh": "5s",
   "time": {
-    "from": "now/d",
-    "to": "now+2d/d"
+    "from": "now-5m",
+    "to": "now"
   },
   "panels": [
     {
@@ -239,16 +239,25 @@
           "displayName": "#${__field.labels.beebait_id}",
           "mappings": [
             {
-              "type": "value",
+              "type": "range",
               "options": {
-                "0": {
+                "from": 0,
+                "to": 0.5,
+                "result": {
                   "text": "Empty",
-                  "color": "green",
+                  "color": "#8E8E8E",
                   "index": 0
-                },
-                "1": {
+                }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 0.5,
+                "to": 1,
+                "result": {
                   "text": "Occupied",
-                  "color": "blue",
+                  "color": "#FF9830",
                   "index": 1
                 }
               }
@@ -261,8 +270,12 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "#8E8E8E",
                 "value": null
+              },
+              {
+                "color": "#FF9830",
+                "value": 0.5
               }
             ]
           }
@@ -274,7 +287,9 @@
         "mergeValues": true,
         "rowHeight": 0.9,
         "legend": {
-          "showLegend": false
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
         }
       }
     },
